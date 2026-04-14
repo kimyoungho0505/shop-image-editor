@@ -134,3 +134,28 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# 설정/시크릿
+.env
+config/secrets.yaml
+
+# 이미지 결과물 (용량 큰 파일 제외)
+output/
+temp/
+*.jpg
+*.jpeg
+*.png
+*.webp
+
+# IDE
+.DS_Store
+.idea/

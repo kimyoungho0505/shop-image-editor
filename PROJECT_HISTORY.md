@@ -1335,6 +1335,30 @@ validation:
 | `.claude/skills/api-ai.md` | AI API 사용법 스킬 (신규) |
 | `.claude/skills/api-image.md` | 이미지 처리 API 사용법 스킬 (신규) |
 
+### Phase 24: Git 레포지토리 초기화 + GitHub 연동 (2026-04-14)
+
+**목적**: 프로젝트 버전 관리 시작, 다중 PC 협업을 위한 GitHub 원격 저장소 연결
+
+#### 1. Git 레포지토리 초기화
+- `git init` → Initial commit (ba57232)
+- 전체 프로젝트 파일 최초 커밋 (Phase 1~23 작업물 일괄 포함)
+
+#### 2. .gitignore 설정
+- Python 관련: `__pycache__/`, `*.pyc`, `.venv/`, `venv/`, `*.egg-info/`
+- 설정/시크릿: `.env`, `config/secrets.yaml`
+- 이미지/결과물: `output/`, `temp/`, `*.jpg`, `*.jpeg`, `*.png`, `*.webp`
+- 용량 큰 바이너리 파일 제외로 레포 경량화
+
+#### 3. GitHub 원격 저장소 연결
+- Remote: `https://github.com/kimyoungho0505/shop-image-editor.git`
+- Branch: `main`
+
+#### 변경 파일 요약
+
+| 파일 | 변경 내용 |
+|------|-----------|
+| `.gitignore` | Python/시크릿/이미지 제외 규칙 추가 |
+
 ---
 
 ## SAM 모델 파일 (삭제됨)
@@ -1360,12 +1384,10 @@ pip install git+https://github.com/ChaoningZhang/MobileSAM.git
 
 ## 현재 상태 & 이어서 할 작업
 
-### 최근 변경 (Phase 23, 2026-04-09)
-1. **복합(Hybrid) 배경 제거** — Photoroom → Vision 품질 검증 → remove.bg 폴백 (66% 비용 절감)
-2. **카테고리별 검증 프롬프트** — shadow_hints.yaml에 validation 필드, pipeline에서 품질 검증 시 카테고리별 기준 적용
-3. **그림자 프롬프트 탭 2분할 UI** — 그림자 프롬프트(보라) + 검증 기준(청색) 동시 편집
-4. **유휴 상태 크래시 수정** — 뷰파인더 타이머 경쟁 조건 해결 (tkinter + PySide6 양쪽)
-5. **API 스킬 파일** — api-ai.md, api-image.md 생성 (AI API + 이미지 처리 API 가이드)
+### 최근 변경 (Phase 24, 2026-04-14)
+1. **Git 레포지토리 초기화** — 전체 프로젝트 최초 커밋 (Phase 1~23 일괄)
+2. **GitHub 원격 저장소 연결** — `kimyoungho0505/shop-image-editor`
+3. **.gitignore 설정** — Python/시크릿/이미지 파일 제외 규칙
 
 ### 확인 필요
 1. **복합 배경 제거 테스트** — Photoroom → Vision 검증 → remove.bg 폴백 플로우 실제 이미지로 확인
@@ -1403,8 +1425,9 @@ pip install git+https://github.com/ChaoningZhang/MobileSAM.git
 ```
 
 ### 주요 파일 현황
-| 파일 | 역할 | 최근 변경 (Phase 23) |
+| 파일 | 역할 | 최근 변경 (Phase 24) |
 |------|------|-----------|
+| `.gitignore` | Git 제외 규칙 | Python/시크릿/이미지 제외 규칙 추가 |
 | `gui.py` | tkinter GUI 전체 | 그림자 프롬프트 탭 2분할, 복합 배경 라디오, 크래시 수정 |
 | `src/pipeline.py` | 처리 파이프라인 | hybrid 배경, `_check_nukki_quality()`, `_get_validation_hint()`, `_validate_result()` 확장 |
 | `config/prompts.yaml` | AI 프롬프트 | 변경 없음 |
