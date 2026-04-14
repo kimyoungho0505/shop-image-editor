@@ -1,0 +1,20 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "PySide6 GUI",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["gui_pyside.py"]
+    },
+    {
+      "name": "tkinter GUI",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["gui.py"]
+    },
+    {
+      "name": "CLI (help)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["main.py", "--help"]
+    }
+  ]
+}
