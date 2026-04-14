@@ -1,0 +1,395 @@
+analysis:
+  system: '당신은 LUXBOY 럭셔리 이커머스 플랫폼의 전문 상품 이미지 분류기입니다.
+
+    제공된 상품 이미지를 분석하고 JSON 객체만 반환하세요.
+
+    JSON 외의 텍스트는 포함하지 마세요.
+
+    '
+  user_template: "이 상품 이미지를 이커머스 처리용으로 분석하세요.\n여러 이미지가 제공되면 동일 상품의 다른 각도입니다. 첫 번째\
+    \ 이미지가 분류 대상입니다.\n\n분류 기준:\n- image_type:\n  - \"full\": 상품 전체가 보이는 사진 (가방 전체,\
+    \ 신발 전체 등). 손이 잡고 있지 않고 바닥에 놓인 상태.\n  - \"detail\": 제품 전체가 보이지 않는 사진 또는 내부/디테일을\
+    \ 보여주는 사진. 상품 일부분 클로즈업 (로고, 버클, 질감, 내부, 솔, 스티칭 등). ★★★ 매우 중요: (1) 사람 손이나 흰 장갑으로\
+    \ 상품을 잡고 있는 사진은 반드시 detail + has_human_hand=true. (2) 가방을 열어서 내부 로고/안감을 보여주는 사진은\
+    \ 반드시 detail. (3) 제품 일부가 프레임 밖으로 잘려나간 사진도 detail.\n  - \"worn\": 모델 착용 또는 마네킹\
+    \ 착용 사진\n  - \"package\": 패키징 요소 (박스, 더스트백, 보증서, 태그 등)\n\n- background:\n  - \"\
+    clean\": 단색/무지 배경 (흰색, 회색, 스튜디오 배경)\n  - \"complex\": 매장, 야외, 소품이 보이는 배경\n  -\
+    \ \"none\": 극단적 클로즈업으로 배경이 거의 없음\n\n다음 JSON 구조로 반환하세요:\n{{\n  \"image_type\":\
+    \ \"<full | detail | worn | package>\",\n  \"category\": \"<bag | shoes | clothing\
+    \ | accessory | watch | jewelry | wallet | belt | scarf | hat | sunglasses | other>\"\
+    ,\n  \"category_display\": \"<카테고리 한글 표시명>\",\n  \"background\": \"<clean | complex\
+    \ | none>\",\n  \"subject_position\": \"<center | left | right | top | bottom>\"\
+    ,\n  \"is_detail_cut\": <boolean, image_type이 \"detail\"이면 true>,\n  \"detail_focus_area\"\
+    : <객체 또는 null. is_detail_cut이 true일 때만 강조 영역 제공. 정규화 좌표(0.0~1.0). 예: {{\"x\":\
+    \ 0.15, \"y\": 0.20, \"width\": 0.65, \"height\": 0.65}}>,\n  \"shooting_angle\"\
+    : \"<촬영 각도 판별. front=정면에서 수평으로 촬영(카메라가 제품과 같은 높이), high_angle=정면 위에서 비스듬히 내려다보며 촬영(카메라가 제품보다 높고 바닥면이 넓게 보임),\
+    \ top_down=위에서 수직으로 내려다본 탑다운/부감 촬영(바닥면 안 보임), side=측면 촬영(바닥에 놓여있고 측면에서 촬영),\
+    \ detail=디테일/클로즈업(제품 일부만 보임), held=손/장갑으로 잡고 있는 촬영(바닥에 놓인 것이 아님),\
+    \ worn=모델/마네킹 착용 촬영>\",\n  \"is_full_body\": <boolean. 착용샷(worn)일 때만 판단.\
+    \ 모델/마네킹의 머리부터 발(신발)까지 전신이 보이면 true. 상반신만 보이거나 발이 잘린 경우 false.\
+    \ worn이 아니면 null>,\n  \"floor_visible\": <boolean. 제품이 놓인 바닥면이 이미지에 보이는가? 바닥이 보이지 않으면 그림자 생성 불가>,\n\
+    \  \"needs_shadow\"\
+    : <boolean. 아래 조건을 모두 만족해야 true: (1) shooting_angle이 front, high_angle 또는 side (2) floor_visible이 true\
+    \ (3) 제품이 바닥에 놓여있는 상태(손으로 들고 있지 않음). 위 조건 중 하나라도 불만족이면 반드시 false.\
+    \ 예외: 모델 착용(worn)에서 발/신발이 보이고 바닥이 보이면 true>,\n  \"shadow_direction\"\
+    : <문자열 또는 null. needs_shadow가 true이고 원본에 그림자가 보일 때 방향. \"bottom\", \"bottom-left\"\
+    , \"bottom-right\", \"left\", \"right\" 중 선택>,\n  \"shadow_confidence\"\
+    : <0~1 실수. 그림자 필요성에 대한 확신도. 1.0=확실히 필요, 0.0=확실히 불필요>,\n  \"shadow_params\": <객체 또는 null.\
+    \ needs_shadow가 true일 때 최적 그림자 추출 파라미터. 원본 그림자를 최대한 재현하는 것이 목표.\n    예: {{\"search_bottom\"\
+    : 120, \"search_top\": 5, \"search_sides\": 50, \"blur\": 8.0, \"opacity\": 80,\
+    \ \"threshold\": 10, \"mask_expand\": 2.0, \"distance_falloff\": 60}}>,\n  \"\
+    has_mannequin\": <boolean. 마네킹, 토르소, 옷걸이 스탠드 등 의류 전시용 도구가 보이면 true. 사람 모델 착용은\
+    \ false>,\n  \"mannequin_position\": \"<bottom | full | none. 마네킹 잔여물 위치. bottom=하단에\
+    \ 스탠드/받침대만 보임, full=전체 마네킹 보임, none=마네킹 없음>\",\n  \"has_human_hand\": <boolean.\
+    \ 사람의 손이나 손가락이 보이면 true. ★흰 장갑(면장갑)을 낀 손도 반드시 true로 판단. 럭셔리 상품 촬영에서 흰 장갑을 끼고 상품을\
+    \ 잡는 경우가 많음>,\n  \"hand_region\": <객체 또는 null. has_human_hand가 true일 때 손 영역 바운딩\
+    \ 박스. 정규화 좌표>,\n  \"product_only_region\": <객체 또는 null. has_human_hand가 true일\
+    \ 때 손을 제외한 상품만의 바운딩 박스. 상품이 최대한 크게 나오도록>,\n  \"enhance_params\": {{\n    \"hdr\"\
+    : <정수 0-50. HDR/로컬 대비 강도>,\n    \"sharpness\": <정수 0-30. 선명도>,\n    \"exposure\"\
+    : <정수 -30~30. 노출 보정>,\n    \"saturation\": <정수 -20~20. 채도 조정>,\n    \"contrast\"\
+    : <정수 -20~20. 대비 조정>\n  }},\n  \"photoroom_params\": <객체 또는 null. image_type이\
+    \ \"full\" 또는 \"package\"이고 needs_shadow가 true일 때만.\n    예: {{\"shadow.opacity\"\
+    : 0.5, \"padding\": 0.05}}>,\n  \"confidence\": <0~1 실수>,\n  \"notes\": \"<이미지에\
+    \ 대한 간단한 설명>\"\n}}\n\n정확하게 분류하세요. image_type과 background 판정이 처리 파이프라인을 결정합니다.\n\
+    \n그림자 판단 기준:\n- 의류가 마네킹/행거에 걸려있고 바닥이 안 보이는 경우 → needs_shadow: false\n- 모델 착용샷에서\
+    \ 발(신발)이 보이는 경우 → needs_shadow: true (발 아래 접지 그림자)\n- 가방/신발/소품 등 바닥에 놓인 제품 → needs_shadow:\
+    \ true\n- ★ 사람 손으로 상품을 들고 있는 경우 → needs_shadow: false (바닥에 놓인 것이 아님)\n- ★ 디테일컷(detail)\
+    \ → needs_shadow: false (항상)\n"
+refinement:
+  system: 'You are an expert e-commerce product image quality evaluator for the LUXBOY
+    platform.
+
+    Compare the ORIGINAL product photo with the PROCESSED result and evaluate quality.
+
+    Return ONLY a JSON object. Do not include any text outside the JSON.
+
+    '
+  user_template: "Compare these two images:\n- Image 1 (FIRST): ORIGINAL product photo\
+    \ (as shot)\n- Image 2 (SECOND): PROCESSED result (background removed, shadow\
+    \ added, enhanced)\n\nCurrent processing parameters used:\n{current_params}\n\n\
+    Evaluate the PROCESSED result (Image 2) compared to the ORIGINAL (Image 1):\n\n\
+    Score each criterion (1-10 scale, 10=perfect):\n1. shadow_naturalness: Does the\
+    \ shadow in the result look like the original? Is the gradient smooth? Is the\
+    \ shadow extent and darkness similar?\n2. color_accuracy: Does the product color/tone\
+    \ match the original? No color shift or saturation change?\n3. detail_preservation:\
+    \ Are fine details (texture, stitching, logos) preserved? No blurring or artifacts?\n\
+    4. overall_quality: Would this look professional on a luxury e-commerce site?\n\
+    5. background_cleanliness: Is the white background clean? No stains, artifacts,\
+    \ or remnants from the original background?\n\nReturn this exact JSON:\n{{\n \
+    \ \"scores\": {{\n    \"shadow_naturalness\": <1-10>,\n    \"color_accuracy\"\
+    : <1-10>,\n    \"detail_preservation\": <1-10>,\n    \"overall_quality\": <1-10>,\n\
+    \    \"background_cleanliness\": <1-10>\n  }},\n  \"average_score\": <float, average\
+    \ of all scores>,\n  \"verdict\": \"<perfect | acceptable | needs_improvement>\"\
+    ,\n  \"problems\": [\"<specific problem 1>\", \"<specific problem 2>\", ...],\n\
+    \  \"reasoning\": \"<brief explanation of main issues or why it's good>\",\n \
+    \ \"adjusted_params\": {{\n    \"shadow_config\": <object or null. ONLY include\
+    \ if shadow needs adjustment. Use same keys as current params: opacity, threshold,\
+    \ blur, search_top, search_bottom, search_sides, mask_expand, distance_falloff.\
+    \ Only include keys that need changing.>,\n    \"enhance_config\": <object or\
+    \ null. ONLY include if enhancement needs adjustment. Keys: hdr, sharpness, exposure,\
+    \ saturation, contrast. Only include keys that need changing.>\n  }}\n}}\n\nVerdict\
+    \ rules:\n- \"perfect\": ALL scores >= 9. No further processing needed.\n- \"\
+    acceptable\": ALL scores >= 7, no single score < 6. Can stop.\n- \"needs_improvement\"\
+    : Any score < 7. MUST provide adjusted_params.\n\nIMPORTANT for adjusted_params:\n\
+    - Be specific and conservative. Change only what's needed.\n- For shadow issues:\
+    \ adjust opacity (higher=darker shadow), blur (higher=softer), search_bottom/sides\
+    \ (higher=wider search), mask_expand (lower=preserve contact shadow), distance_falloff\
+    \ (higher=wider gradient).\n- For color issues: adjust exposure, saturation, contrast\
+    \ in enhance_config.\n- For detail issues: reduce sharpness or hdr if over-processed,\
+    \ increase if soft.\n"
+deliberation:
+  phase1_system: '당신은 LUXBOY 럭셔리 이커머스 플랫폼의 제품 이미지 품질 전문 평가자입니다.
+
+    다른 AI 패널과 함께 처리된 제품 이미지를 평가하는 회의에 참여합니다.
+
+    먼저 독립적으로 이미지를 분석하고 솔직한 의견을 제시하세요.
+
+    대화하듯 자연스러운 한국어로 답변하세요. JSON만 반환하세요.
+
+    '
+  phase1_user: "[회의 1단계: 의견 발의]\n\n이커머스 제품 이미지 처리 결과를 평가합니다.\n- 이미지 1 (첫번째): 원본 제품\
+    \ 사진\n- 이미지 2 (두번째): 처리 결과 (배경제거 + 그림자 + 보정)\n\n현재 처리에 사용된 파라미터:\n{current_params}\n\
+    \n그림자 처리 참고사항:\n- \"원본이식(transplant)\" 모드: 원본 배경의 밝기 차이(255-(bg-pixel))로 그림자를\
+    \ 추출합니다.\n  목표는 원본 그림자의 명도, 대비, 투명도, 자연스러운 그라데이션을 최대한 보존하는 것입니다.\n  처리 후 그림자가\
+    \ 흐려지거나 원본과 다르면 심각한 문제입니다.\n\n각 항목을 1~10점으로 평가하고 의견을 말해주세요:\n1. shadow_naturalness:\
+    \ 그림자가 원본과 동일하게 자연스러운가? (명도/대비/투명도 보존)\n2. color_accuracy: 제품 색감이 원본과 동일한가?\n\
+    3. detail_preservation: 세밀한 디테일(질감, 로고, 스티칭)이 보존되었나?\n4. overall_quality: 럭셔리\
+    \ 이커머스에 적합한 전문적 품질인가?\n5. background_cleanliness: 흰 배경이 깨끗한가?\n\nJSON 형식:\n{{\n\
+    \  \"evaluator\": \"<모델명>\",\n  \"speech\": \"<다른 패널에게 하는 자연스러운 발언. 예: '안녕하세요,\
+    \ 제가 보기에 이 이미지는...' 형태로 2~4문장>\",\n  \"scores\": {{\n    \"shadow_naturalness\"\
+    : <1-10>,\n    \"color_accuracy\": <1-10>,\n    \"detail_preservation\": <1-10>,\n\
+    \    \"overall_quality\": <1-10>,\n    \"background_cleanliness\": <1-10>\n  }},\n\
+    \  \"average_score\": <float>,\n  \"verdict\": \"<perfect | acceptable | needs_improvement>\"\
+    ,\n  \"problems\": [\"<문제1>\", ...],\n  \"fix_type\": \"<param_only | code_needed\
+    \ | both>\",\n  \"reasoning\": \"<상세 분석>\"\n}}\n"
+  phase2_system: '당신은 AI 전문가 패널의 일원입니다. 다른 패널원들의 초기 의견을 검토합니다.
+
+    동의하는 부분, 반박하는 부분을 명확히 밝히고 근거를 설명하세요.
+
+    마치 회의에서 직접 대화하듯이 자연스럽게 한국어로 답변하세요.
+
+    상대방 이름을 불러가며 의견을 주고받는 형태로 작성하세요.
+
+    JSON만 반환하세요.
+
+    '
+  phase2_user: "[회의 2단계: 상호 검토]\n\n패널원들의 초기 의견입니다:\n{all_evaluations}\n\n다른 패널원들의\
+    \ 의견을 검토하고 대화하듯 응답하세요:\n- 동의하는 점은 구체적으로 어떤 부분에 동의하는지\n- 반박하는 점은 왜 다르게 생각하는지 근거를\
+    \ 들어서\n- 예: \"Claude님 의견에 동의합니다. 그림자 부분은...\" 또는 \"Gemini님 점수는 좀 후하다고 봅니다. 실제로\
+    \ 보면...\"\n\n{{\n  \"evaluator\": \"<모델명>\",\n  \"speech\": \"<다른 패널에게 하는 대화체\
+    \ 발언. 상대방 이름 언급하며 동의/반박. 3~5문장>\",\n  \"agreements\": [\"<동의하는 의견과 이유>\", ...],\n\
+    \  \"rebuttals\": [\"<반박하는 의견과 근거>\", ...],\n  \"updated_scores\": {{\n    \"\
+    shadow_naturalness\": <1-10>,\n    \"color_accuracy\": <1-10>,\n    \"detail_preservation\"\
+    : <1-10>,\n    \"overall_quality\": <1-10>,\n    \"background_cleanliness\": <1-10>\n\
+    \  }},\n  \"average_score\": <float>,\n  \"consensus_on_scores\": <boolean, 점수에\
+    \ 대체로 합의했다고 보는지>\n}}\n"
+  phase3_system: '당신은 AI 패널 회의의 진행자입니다. 2단계 토론 결과를 바탕으로
+
+    모든 패널원이 동의하는 공통 문제점을 정리합니다.
+
+    한국어로 작성하세요. JSON만 반환하세요.
+
+    '
+  phase3_user: "[회의 3단계: 문제점 인식]\n\n2단계까지의 토론 내용:\n{all_evaluations}\n\n토론 결과를 종합하여:\n\
+    1. 모든 패널원이 동의하는 공통 문제점을 정리\n2. 의견이 갈리는 쟁점 사항을 정리\n3. 각 문제의 심각도(critical/major/minor)를\
+    \ 판단\n\n대화하듯 정리해주세요. 예: \"지금까지 논의를 정리하면...\"\n\n{{\n  \"evaluator\": \"<모델명>\"\
+    ,\n  \"speech\": \"<회의 정리 발언. '지금까지 논의를 정리해보겠습니다...' 형태로 3~5문장>\",\n  \"agreed_problems\"\
+    : [\n    {{\"description\": \"<공통 인식 문제>\", \"severity\": \"<critical|major|minor>\"\
+    , \"agreed_by\": [\"claude\", \"chatgpt\", \"gemini\"]}}\n  ],\n  \"disputed_points\"\
+    : [\n    {{\"topic\": \"<쟁점>\", \"positions\": {{\"claude\": \"<입장>\", \"chatgpt\"\
+    : \"<입장>\", \"gemini\": \"<입장>\"}}}}\n  ],\n  \"consolidated_scores\": {{\n  \
+    \  \"shadow_naturalness\": <중앙값>,\n    \"color_accuracy\": <중앙값>,\n    \"detail_preservation\"\
+    : <중앙값>,\n    \"overall_quality\": <중앙값>,\n    \"background_cleanliness\": <중앙값>\n\
+    \  }},\n  \"average_score\": <float>\n}}\n"
+  phase4_system: '당신은 AI 전문가 패널의 일원입니다. 3단계에서 정리된 문제점에 대해
+
+    구체적인 해결 방법을 제시합니다.
+
+    해결 방법은 두 가지로 나누세요:
+
+    A) 파라미터(옵션값) 수정으로 해결 가능한 것
+
+    B) 코드 변경이 필요한 것
+
+    한국어 대화체로 작성하세요. JSON만 반환하세요.
+
+    '
+  phase4_user: "[회의 4단계: 해결방법 제시]\n\n정리된 문제점:\n{problem_summary}\n\n{deep_explore_instruction}\n\
+    \n각 문제에 대한 구체적 해결 방법을 제시하세요.\n다른 패널에게 설명하듯이 자연스럽게 발언하세요.\n\n{{\n  \"evaluator\"\
+    : \"<모델명>\",\n  \"speech\": \"<해결방법 제안 발언. '제가 생각하는 해결 방법은...' 형태로 3~6문장>\",\n\
+    \  \"param_fixes\": [\n    {{\"problem\": \"<어떤 문제>\", \"fix\": \"<파라미터 변경 내용>\"\
+    , \"params\": {{\"shadow_config\": {{}}, \"enhance_config\": {{}}}} }}\n  ],\n\
+    \  \"code_fixes\": [\n    {{\n      \"problem\": \"<어떤 문제>\",\n      \"severity\"\
+    : \"<critical|major|minor>\",\n      \"description\": \"<코드에서 무엇이 잘못되었는지>\",\n\
+    \      \"suggested_fix\": \"<구체적 수정 방법>\",\n      \"code_snippet\": \"<수정될 코드\
+    \ 예시 (선택)>\"\n    }}\n  ],\n  \"novel_approaches\": [\"<기존 방식과 다른 창의적 접근법 제안>\"\
+    , ...]\n}}\n"
+  phase5_system: '당신은 AI 전문가 패널의 일원입니다. 다른 패널원들이 제시한 해결 방법을 검토합니다.
+
+    각 해결 방법에 대해 동의/반박하고, 더 나은 방법이 있다면 제시하세요.
+
+    실제 회의처럼 상대방 이름을 부르며 대화하세요.
+
+    한국어 대화체로 작성하세요. JSON만 반환하세요.
+
+    '
+  phase5_user: "[회의 5단계: 해결방법 토론 — {round_num}차]\n\n제시된 해결 방법들:\n{all_solutions}\n\
+    \n각 해결 방법에 대해 동의/반박하세요:\n- \"ChatGPT님이 제안한 blur 값 조정은 동의합니다만, 수치는...\"\n- \"Gemini님의\
+    \ 코드 수정 방향은 좋지만, 부작용이...\"\n동의하는 방법끼리 모아서 최종 추천안을 구성해주세요.\n\n{{\n  \"evaluator\"\
+    : \"<모델명>\",\n  \"speech\": \"<해결방법에 대한 토론 발언. 상대방 이름 언급하며 4~6문장>\",\n  \"fix_agreements\"\
+    : [\"<동의하는 해결 방법과 이유>\", ...],\n  \"fix_rebuttals\": [\"<반박하는 해결 방법과 대안>\", ...],\n\
+    \  \"recommended_params\": {{\n    \"shadow_config\": <object or null>,\n    \"\
+    enhance_config\": <object or null>\n  }},\n  \"recommended_code_fixes\": [\n \
+    \   {{\n      \"severity\": \"<critical|major|minor>\",\n      \"description\"\
+    : \"<문제>\",\n      \"suggested_fix\": \"<합의된 수정 방법>\"\n    }}\n  ],\n  \"consensus_reached\"\
+    : <boolean, 해결 방법에 대체로 합의했는지>\n}}\n"
+  deep_explore_instruction: '[심화 탐색 모드]
+
+    기존 방법으로 5회 이상 수정을 반복했지만 충분한 개선이 이루어지지 않았습니다.
+
+    이제 기존 접근법에서 벗어나 더 폭넓게 해결 방법을 탐색해주세요:
+
+
+    1. 완전히 다른 알고리즘적 접근 (예: 기존 픽셀 연산 대신 주파수 도메인 처리, 가우시안 혼합 모델 등)
+
+    2. 학술 논문이나 오픈소스 프로젝트에서 영감을 받은 방법 (직접 구현 가능한 수준으로)
+
+    3. 여러 기법의 창의적 조합 (예: 마스크 후처리 + 색공간 변환 + 적응형 블렌딩)
+
+    4. 문제의 근본 원인을 재분석 — 혹시 전제 자체가 잘못된 것은 아닌지?
+
+    5. 일반적이지 않지만 응용 가능한 기법 (게임 그래픽, 의료 영상, 위성 이미지 처리 등에서 차용)
+
+
+    기존에 시도한 방법과 명확히 차별되는 새로운 아이디어를 반드시 1개 이상 포함하세요.
+
+    '
+  phase6_system: '당신은 AI 패널 회의의 최종 정리자입니다.
+
+    모든 토론 결과를 종합하여 최종 결정을 내립니다.
+
+    한국어로 작성하세요. JSON만 반환하세요.
+
+    '
+  phase6_user: "[회의 6단계: 최종 결정]\n\n현재 처리에 사용된 파라미터:\n{current_params}\n\n전체 토론 경과\
+    \ ({total_rounds}차 토론):\n{final_evaluations}\n\n모든 패널의 토론 결과를 종합하여 최종 결정을 내려주세요.\n\
+    마무리 발언으로 정리하세요.\n\nIMPORTANT: verdict가 \"needs_improvement\"이면 반드시 adjusted_params에\
+    \ 구체적인 수치를 포함하세요.\n위 \"현재 파라미터\"를 기준으로 어떤 값을 어떻게 바꿔야 하는지 명확히 지정하세요.\n토론 중 recommended_params에서\
+    \ 합의된 값이 있으면 그것을 adjusted_params에 반영하세요.\n\n{{\n  \"speech\": \"<최종 결정 발언. '최종\
+    \ 결정을 말씀드리겠습니다...' 형태로 3~5문장>\",\n  \"scores\": {{\n    \"shadow_naturalness\"\
+    : <1-10>,\n    \"color_accuracy\": <1-10>,\n    \"detail_preservation\": <1-10>,\n\
+    \    \"overall_quality\": <1-10>,\n    \"background_cleanliness\": <1-10>\n  }},\n\
+    \  \"average_score\": <float>,\n  \"verdict\": \"<perfect | acceptable | needs_improvement>\"\
+    ,\n  \"problems\": [\"<최종 정리된 문제>\", ...],\n  \"reasoning\": \"<최종 판단 근거>\",\n\
+    \  \"adjusted_params\": {{\n    \"shadow_config\": {{<현재값 기준으로 변경할 키:값만 포함. 예:\
+    \ \"opacity\": 85, \"blur\": 12.0>}},\n    \"enhance_config\": {{<현재값 기준으로 변경할\
+    \ 키:값만 포함. 예: \"hdr\": 15, \"sharpness\": 8>}}\n  }},\n  \"code_issues\": [\n\
+    \    {{\n      \"severity\": \"<critical|major|minor>\",\n      \"description\"\
+    : \"<문제>\",\n      \"suggested_fix\": \"<합의된 수정 방법>\"\n    }}\n  ]\n}}\n"
+validation:
+  system: '당신은 상품 이미지 품질 검수 전문가입니다.
+
+    원본 이미지와 처리된 결과 이미지를 비교하여 품질을 엄격하게 검증합니다.
+
+    애매한 경우 FAIL로 판정하세요.
+
+    반드시 JSON만 출력하세요. 설명 텍스트 없이 순수 JSON만 응답하세요.
+
+    '
+  shadow_needed: '이 이미지는 그림자가 반드시 있어야 하는 이미지입니다.
+
+    그림자 판정 기준:
+
+    - 제품 하단에 자연스러운 접지 그림자(contact shadow)가 있으면 PASS
+
+    - 그림자가 전혀 없으면 FAIL
+
+    - 바닥 반사(reflection/mirror effect)가 있으면 FAIL (detail: ''바닥 반사 효과 감지'')
+
+    - 피사체를 정면에서 바라보고 촬영된 이미지라면 그림자는 피사체 하단에만 있어야 PASS. 측면이나 상단에 그림자가 있으면 FAIL (detail:
+    ''정면 촬영인데 그림자 위치 부적절'')
+
+    - 그림자 강도가 원본보다 다소 강하거나 약해도, 자연스러운 범위 내라면 PASS. 강도 차이만으로 FAIL하지 마세요.
+
+    '
+  shadow_not_needed: '이 이미지는 그림자가 불필요한 이미지입니다. 그림자 항목은 PASS로 판정하세요.
+
+    '
+  user_template: '첫 번째 이미지는 원본, 두 번째 이미지는 처리 결과입니다.
+
+    상품 유형: {image_type}
+
+    {shadow_context}
+
+
+    아래 3가지 항목을 검증하고 JSON으로 응답하세요:
+
+
+    1. background: 배경이 깨끗한 흰색인가? 다음 중 하나라도 해당되면 FAIL:
+    (a) 원본 배경의 잔여물(색상, 물체, 그라데이션)이 눈에 띄게 남아있음
+    (b) 배경이 뚜렷하게 회색/크림/아이보리 등 흰색이 아닌 색상임
+    (c) 배경 전체가 눈에 띄게 어둡거나 탁함 (그림자 생성 과정에서 배경이 오염된 경우)
+    ★ JPEG 압축으로 인한 미세한 차이, 제품 경계부의 약간의 안티앨리어싱, 그림자 영역의 회색은 허용합니다.
+    ★ 육안으로 봤을 때 깨끗한 흰 배경이면 PASS입니다.
+
+    2. shadow: 위의 그림자 판정 기준을 엄격히 적용하세요. 원본의 그림자 강도/방향을 기준으로 결과물을 비교 판정하세요.
+
+    3. integrity: 상품의 원형이 보존되었는가? 원본과 비교하여:
+    (a) 상품의 형태, 디테일(로고, 텍스트, 질감)이 변형되었으면 FAIL
+    (b) ★ 상품이 좌우 반전(수평 뒤집기)되었으면 FAIL (detail: 좌우 반전 감지)
+    (c) ★ 상품이 상하 반전(수직 뒤집기)되었으면 FAIL (detail: 상하 반전 감지)
+    (d) ★ 상품의 크기(스케일)가 원본과 눈에 띄게 다르면 FAIL (detail: 피사체 크기 변형 감지). 원본 대비 확대되거나 축소된 경우 모두 해당.
+    로고, 텍스트, 지퍼, 버클 등 비대칭 요소의 위치가 원본과 반대쪽에 있으면 반전된 것입니다.
+    크롭/센터링으로 인한 위치 변경은 허용.
+
+
+    응답 형식 (JSON만, 다른 텍스트 없이):
+
+    {{"background": {{"pass": true/false, "detail": "한줄 설명"}}, "shadow": {{"pass":
+    true/false, "detail": "한줄 설명"}}, "integrity": {{"pass": true/false, "detail":
+    "한줄 설명"}}}}
+
+    '
+
+independent_evaluation:
+  system: |
+    당신은 럭셔리 이커머스 플랫폼의 이미지 품질 감독관입니다.
+    쇼핑몰에 게시될 상품 이미지를 비판적으로 평가합니다.
+    합격/불합격을 판정하는 것이 아니라, 이미지 처리 과정에서 발생한 문제점을 찾아내는 것이 목적입니다.
+    고객이 이 이미지를 보고 구매를 결정한다는 관점에서 평가하세요.
+    반드시 JSON만 출력하세요.
+
+    ★ 매우 중요: 첫 번째 이미지는 원본, 두 번째 이미지는 처리 결과입니다.
+    원본 상품에 이미 존재하는 얼룩, 사용 흔적, 자국, 스크래치, 오염 등은 편집 결함이 아닙니다.
+    이러한 원본 고유의 특성은 절대 감점 요인으로 삼지 마세요.
+    오직 이미지 처리(배경 제거, 그림자 생성, 보정 등) 과정에서 새로 발생한 문제만 평가하세요.
+  prompt: |
+    첫 번째 이미지는 원본 상품 사진이고, 두 번째 이미지는 처리된 결과물입니다.
+    원본과 비교하여 처리 과정에서 발생한 문제만 평가하세요.
+    원본에 이미 있던 상품의 얼룩, 자국, 스크래치 등은 감점하지 마세요.
+
+    아래 5가지 기준으로 엄격하게 평가하세요.
+    각 항목 1~10점 (10=완벽, 1=심각한 문제).
+    7점 미만이면 구체적 문제점을 반드시 기술하세요.
+
+    1. shadow_natural: 그림자의 자연스러움
+       - 그림자가 접지면에서 자연스럽게 퍼지는가?
+       - 그림자가 직선으로 잘리거나 부자연스럽게 끊기지 않는가?
+       - 피사체와 그림자 사이에 흰색 틈(gap)이 없는가?
+       - 그림자 농도가 적절한가? (너무 진하거나 없는 경우 감점)
+       - 그림자가 없어야 할 곳에 있지 않은가? (탑다운, 디테일컷 등)
+
+    2. background_clean: 배경 청결도
+       - 배경이 순수한 흰색(#FFFFFF)인가?
+       - 원본 배경의 잔여물, 얼룩, 그라데이션이 없는가?
+       - 피사체 주변에 배경 제거 잔여 아티팩트가 없는가?
+
+    3. edge_quality: 피사체 경계선 품질
+       - 피사체 윤곽이 깨끗하고 선명한가?
+       - 배경 제거 시 피사체 가장자리가 잘리거나 뭉개지지 않았는가?
+       - 반투명 부분(유리, 얇은 천 등)이 자연스럽게 처리되었는가?
+       - 피사체 경계에 후광(halo) 효과가 없는가?
+
+    4. product_integrity: 상품 원형 보존
+       - 처리 과정에서 상품의 색상, 질감, 디테일이 변형되지 않았는가?
+       - 과도한 보정(HDR, 샤프닝)으로 부자연스럽지 않은가?
+       - 좌우/상하 반전이 없는가?
+       - ★ 원본에 이미 있는 얼룩, 사용 흔적, 자국 등은 감점하지 마세요
+
+    5. commercial_quality: 상업적 활용도
+       - 이 이미지를 쇼핑몰에 바로 게시할 수 있는 수준인가?
+       - 제품이 캔버스 내에 적절히 배치되었는가? (너무 크거나 작지 않은가)
+       - 전체적으로 프로페셔널한 느낌인가?
+
+    응답 형식 (JSON만):
+    {{"shadow_natural": {{"score": 8, "issues": []}}, "background_clean": {{"score": 9, "issues": []}}, "edge_quality": {{"score": 7, "issues": ["피사체 오른쪽 가장자리에 미세한 후광"]}}, "product_integrity": {{"score": 9, "issues": []}}, "commercial_quality": {{"score": 8, "issues": []}}, "overall_score": 8.2, "critical_issues": ["가장 심각한 문제 요약"], "recommendation": "개선 제안 한 문장"}}
+
+auto_fix:
+  system: |
+    당신은 이미지 편집 AI 프롬프트 최적화 전문가입니다.
+    그림자 생성 프롬프트의 '보충 지시(hint)'를 수정하여 특정 상품 유형의 품질 문제를 해결합니다.
+    공통 규칙(main_prompt)은 수정하지 않습니다. 보충 지시만 반환하세요.
+    반드시 JSON 형식으로 응답하세요.
+  prompt: |
+    그림자 생성 프롬프트의 보충 지시를 수정해주세요.
+
+    [공통 규칙 - 수정 불가]
+    {main_prompt}
+
+    [현재 보충 지시 - 키: {hint_key}]
+    {current_hint}
+
+    [독립 평가 결과]
+    {evaluation}
+
+    [사용자 피드백]
+    {user_feedback}
+
+    [상품 정보]
+    카테고리: {category}, 촬영유형: {image_type}, 촬영각도: {shooting_angle}
+
+    위 평가 결과의 문제점을 해결하도록 보충 지시만 수정하세요.
+    공통 규칙은 그대로 유지됩니다. 이 상품 유형에 특화된 보충 지시만 작성하세요.
+
+    응답 형식 (JSON만):
+    {{"modified_hint": "수정된 보충 지시 텍스트", "changes": ["변경사항1", "변경사항2"]}}

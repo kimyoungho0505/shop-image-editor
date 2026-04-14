@@ -1,0 +1,146 @@
+output:
+  width: 1000
+  height: 1000
+  max_file_size_kb: 2024
+  background_color:
+  - 255
+  - 255
+  - 255
+  default_jpeg_quality: 95
+image:
+  supported_formats:
+  - .jpg
+  - .jpeg
+  - .png
+  - .bmp
+  - .tiff
+  - .webp
+api:
+  model: claude-opus-4-20250514
+  max_tokens: 2048
+  temperature: 0.1
+providers:
+  vision: gemini
+  background_removal: removebg
+  enhancement: claid
+  shadow: gemini_shadow
+openai:
+  model: gpt-4o
+  max_tokens: 2048
+  temperature: 0.1
+gemini:
+  model: gemini-2.5-flash
+  max_tokens: 2048
+  temperature: 0.1
+shadow_extract:
+  method: transplant
+  opacity: 70
+  threshold: 15
+  blur: 10.0
+  search_top: 10
+  search_bottom: 150
+  search_sides: 80
+  mask_expand: 3.0
+  distance_falloff: 100
+removebg:
+  size: auto
+  type: product
+opencv_enhance:
+  full:
+    hdr: 20
+    sharpness: 15
+    exposure: 0
+    saturation: 0
+    contrast: 0
+  detail:
+    hdr: 15
+    sharpness: 10
+    exposure: 0
+    saturation: 0
+    contrast: 0
+  worn:
+    hdr: 10
+    sharpness: 5
+    exposure: 0
+    saturation: 0
+    contrast: 0
+  package:
+    hdr: 20
+    sharpness: 15
+    exposure: 0
+    saturation: 0
+    contrast: 0
+photoroom:
+  full:
+    removeBackground: true
+    outputSize: originalImage
+    padding: 0.05
+    scaling: fit
+    export.format: png
+    shadow.mode: ai.soft
+    shadow.opacity: 0.5
+  detail_complex:
+    removeBackground: true
+    positioning: originalImage
+    outputSize: originalImage
+    padding: 0
+    scaling: fit
+    export.format: png
+  package:
+    removeBackground: true
+    outputSize: originalImage
+    padding: 0.08
+    scaling: fit
+    export.format: png
+    shadow.mode: ai.soft
+    shadow.opacity: 0.5
+sam:
+  model_variant: sam_vit_b (CPU)
+  checkpoint: null
+  mask_smoothing: true
+auto_options:
+  claid: ai_auto
+  opencv: ai_auto
+  photoroom: ai_auto
+  shadow: ai_auto
+claid:
+  full:
+    hdr: 20
+    sharpness: 10
+    exposure: 20
+    saturation: 5
+    contrast: 10
+  detail:
+    fit: canvas
+    width: 1000
+    height: 1000
+    hdr: 15
+    sharpness: 10
+    background_color: '#FFFFFF'
+  worn:
+    fit: bounds
+    width: 1000
+    hdr: 10
+    sharpness: 5
+  package:
+    hdr: 20
+    sharpness: 15
+gemini_shadow:
+  ref_prompt: 위 이미지는 원본 제품 사진입니다. 원본에 있는 자연스러운 그림자의 방향, 농도, 부드러움을 참고하세요.
+  main_prompt: '위 이미지는 배경이 제거된 누끼 이미지입니다. 이 누끼 이미지의 바닥에 자연스러운 접지 그림자(ground shadow)를
+    추가해주세요. {has_original}제품 자체는 절대 변경하지 마세요. 배경은 깨끗한 흰색을 유지하세요. 그림자는 제품 바로 아래에 부드럽게
+    퍼지는 형태로, 럭셔리 이커머스 제품 사진처럼 고급스럽게 만들어주세요. 누끼 이미지를 기반으로 결과를 출력하세요.
+
+    그림자와 배경흰색의 경계면은 그라데이션으로 자연스럽게 이어지게 하되 피사체가 공중에 뜬 느낌은 없어야 하며 그림자가 너무 과하지 않게 들어가야합니다.
+    그리고 그림자 일반적인 그림자보다 조금 연하게 해주세요'
+  orig_insert: 원본 사진의 그림자를 최대한 동일하게 재현해주세요.
+  order: after_enhance
+tts:
+  provider: openai
+  openai_model: tts-1-hd
+  speed: 1.0
+  voices:
+    claude: alloy
+    chatgpt: nova
+    gemini: echo
+    mc: shimmer

@@ -1,0 +1,273 @@
+# Claude Vision API 프롬프트 템플릿
+analysis:
+  system: |
+    You are an expert product image classifier for the LUXBOY luxury e-commerce platform.
+    Analyze the provided product image and return ONLY a JSON object with your classification.
+    Do not include any text outside the JSON object.
+
+  user_template: |
+    Analyze this product image for e-commerce processing.
+    If multiple images are provided, they are all from the same product batch. Use ALL images together to determine the product category more accurately. The FIRST image is the primary target for classification.
+
+    Classification criteria:
+    - image_type:
+      - "full": The ENTIRE product is visible (full bag, full pair of shoes, full clothing item, etc.)
+      - "detail": Close-up of a SPECIFIC PART of the product (logo engraving, buckle, texture, interior, sole, stitching, metal hardware, zipper, label, etc.)
+      - "worn": Product being worn by a model or displayed on a mannequin
+      - "package": Packaging elements (box, dust bag, certificate, tags, etc.)
+
+    - background:
+      - "clean": Solid/plain background (white, gray, studio backdrop)
+      - "complex": Store, outdoor, props visible in background
+      - "none": Extreme close-up with virtually no background visible
+
+    - subject_position: Where the main subject is positioned in the frame
+
+    Return this exact JSON structure:
+    {{
+      "image_type": "<full | detail | worn | package>",
+      "category": "<bag | shoes | clothing | accessory | watch | jewelry | wallet | belt | scarf | hat | sunglasses | other>",
+      "category_display": "<Korean display name for the category>",
+      "background": "<clean | complex | none>",
+      "subject_position": "<center | left | right | top | bottom>",
+      "is_detail_cut": <boolean, true if image_type is "detail">,
+      "detail_focus_area": <object or null. ONLY when is_detail_cut is true, provide the region that should be emphasized. Use normalized coordinates (0.0 to 1.0). Example: {{"x": 0.15, "y": 0.20, "width": 0.65, "height": 0.65}}. Set null when is_detail_cut is false.>,
+      "needs_shadow": <boolean. true if the product would benefit from a ground/drop shadow for e-commerce display. IMPORTANT: If the camera is looking straight down at the product from above (top-down / bird's eye view), needs_shadow MUST be false — shadows look unnatural on top-down shots. Also set false for: flat-lay items, detail close-ups, worn/model shots. Only set true for side/front angle shots where the product sits on a surface.>,
+      "shadow_direction": <string or null. ONLY when needs_shadow is true AND a visible shadow exists in the original image, indicate the direction where the shadow falls relative to the product. Use: "bottom", "bottom-left", "bottom-right", "left", "right". If no visible shadow in the original or needs_shadow is false, set null.>,
+      "shadow_params": <object or null. ONLY when needs_shadow is true, recommend optimal shadow extraction parameters based on the ORIGINAL IMAGE's actual shadow appearance. Your goal is to reproduce the original shadow as faithfully as possible, preserving its natural gradient (gradation) from dark near the product to light farther away. Return null when needs_shadow is false.
+        IMPORTANT: Carefully observe the original image's shadow - its spread, darkness, softness, and how it gradually fades away. The extracted shadow must look like the original, with smooth natural gradation preserved.
+        Example: {{"search_bottom": 120, "search_top": 5, "search_sides": 50, "blur": 8.0, "opacity": 80, "threshold": 10, "mask_expand": 2.0, "distance_falloff": 60}}
+        Parameter guide:
+        - search_bottom (0-200): How far below the product to search for shadow. Match the original shadow extent. Shoes/bags typically 80-150.
+        - search_top (0-50): How far above the product to search. Usually small (3-10).
+        - search_sides (0-100): How far left/right to search. Match original shadow width (30-80).
+        - blur (1-25): Shadow edge softness. CRITICAL for natural gradation. Soft diffused shadows → higher (10-20). Hard sharp shadows → lower (3-7). Most studio product shots have soft shadows (8-15).
+        - opacity (30-100): Shadow overall darkness. Match the original. Faint shadows → 30-50. Moderate → 50-80. Strong → 80-100.
+        - threshold (5-30): Min brightness difference to detect shadow. Light shadows → 5-10. Dark shadows → 15-25.
+        - mask_expand (1-5): Product mask expansion for edge cleanup. Simple shapes → 1-2. Complex → 3-5.
+        - distance_falloff (30-100): How far the shadow gradient extends, as % of product size. Small tight shadows → 30-40. Wide diffused shadows → 60-100. This controls the natural fade-out gradient from product to background.>,
+      "has_human_hand": <boolean. true if any human hand or fingers are visible in the image (e.g., hand holding the product, fingers gripping a strap, hand opening a bag)>,
+      "hand_region": <object or null. ONLY when has_human_hand is true, provide the bounding box of the hand area using normalized coordinates (0.0 to 1.0). Example: {{"x": 0.0, "y": 0.7, "width": 0.3, "height": 0.3}}. Set null when has_human_hand is false.>,
+      "product_only_region": <object or null. ONLY when has_human_hand is true, provide the tight bounding box of the PRODUCT ONLY, completely excluding all human hands, fingers, and arms. The goal is to crop the image so the product appears as LARGE as possible while the hand is NOT visible at all. Use normalized coordinates (0.0 to 1.0). Example: {{"x": 0.1, "y": 0.0, "width": 0.8, "height": 0.9}}. Set null when has_human_hand is false.>,
+      "enhance_params": {{
+        "hdr": <integer 0-50. Recommended HDR/local contrast strength. Higher (20-40) for flat/dull lighting. Lower (5-15) for already well-lit studio shots. 0 if image has strong HDR already.>,
+        "sharpness": <integer 0-30. Recommended sharpness. Higher (15-25) for soft/slightly blurry images. Lower (5-10) for already crisp images. 0 if very sharp.>,
+        "exposure": <integer -30 to 30. Exposure correction. Positive to brighten underexposed images, negative to darken overexposed. 0 if exposure is good.>,
+        "saturation": <integer -20 to 20. Saturation adjustment. Positive to boost muted colors, negative to tone down oversaturated. 0 if color balance is good.>,
+        "contrast": <integer -20 to 20. Contrast adjustment. Positive for flat/low-contrast images, negative for overly contrasty. 0 if contrast is good.>
+      }},
+      "photoroom_params": <object or null. ONLY when image_type is "full" or "package" and needs_shadow is true, recommend Photoroom-specific settings. Otherwise null.
+        Example: {{"shadow.opacity": 0.5, "padding": 0.05}}
+        - shadow.opacity (0.0-1.0): Shadow darkness. Faint/subtle products → 0.3-0.5. Bold/heavy products → 0.5-0.8.
+        - padding (0.0-0.15): Product padding ratio. Large products filling frame → 0.03-0.05. Small products with space → 0.08-0.12.>,
+      "confidence": <float from 0 to 1>,
+      "notes": "<brief description of what is shown in the image>"
+    }}
+
+    Be precise with your classification. Focus on accurately identifying the image type and background condition, as these determine the processing pipeline.
+
+refinement:
+  system: |
+    You are an expert e-commerce product image quality evaluator for the LUXBOY platform.
+    Compare the ORIGINAL product photo with the PROCESSED result and evaluate quality.
+    Return ONLY a JSON object. Do not include any text outside the JSON.
+
+  user_template: |
+    Compare these two images:
+    - Image 1 (FIRST): ORIGINAL product photo (as shot)
+    - Image 2 (SECOND): PROCESSED result (background removed, shadow added, enhanced)
+
+    Current processing parameters used:
+    {current_params}
+
+    Evaluate the PROCESSED result (Image 2) compared to the ORIGINAL (Image 1):
+
+    Score each criterion (1-10 scale, 10=perfect):
+    1. shadow_naturalness: Does the shadow in the result look like the original? Is the gradient smooth? Is the shadow extent and darkness similar?
+    2. color_accuracy: Does the product color/tone match the original? No color shift or saturation change?
+    3. detail_preservation: Are fine details (texture, stitching, logos) preserved? No blurring or artifacts?
+    4. overall_quality: Would this look professional on a luxury e-commerce site?
+    5. background_cleanliness: Is the white background clean? No stains, artifacts, or remnants from the original background?
+
+    Return this exact JSON:
+    {{
+      "scores": {{
+        "shadow_naturalness": <1-10>,
+        "color_accuracy": <1-10>,
+        "detail_preservation": <1-10>,
+        "overall_quality": <1-10>,
+        "background_cleanliness": <1-10>
+      }},
+      "average_score": <float, average of all scores>,
+      "verdict": "<perfect | acceptable | needs_improvement>",
+      "problems": ["<specific problem 1>", "<specific problem 2>", ...],
+      "reasoning": "<brief explanation of main issues or why it's good>",
+      "adjusted_params": {{
+        "shadow_config": <object or null. ONLY include if shadow needs adjustment. Use same keys as current params: opacity, threshold, blur, search_top, search_bottom, search_sides, mask_expand, distance_falloff. Only include keys that need changing.>,
+        "enhance_config": <object or null. ONLY include if enhancement needs adjustment. Keys: hdr, sharpness, exposure, saturation, contrast. Only include keys that need changing.>
+      }}
+    }}
+
+    Verdict rules:
+    - "perfect": ALL scores >= 9. No further processing needed.
+    - "acceptable": ALL scores >= 7, no single score < 6. Can stop.
+    - "needs_improvement": Any score < 7. MUST provide adjusted_params.
+
+    IMPORTANT for adjusted_params:
+    - Be specific and conservative. Change only what's needed.
+    - For shadow issues: adjust opacity (higher=darker shadow), blur (higher=softer), search_bottom/sides (higher=wider search), mask_expand (lower=preserve contact shadow), distance_falloff (higher=wider gradient).
+    - For color issues: adjust exposure, saturation, contrast in enhance_config.
+    - For detail issues: reduce sharpness or hdr if over-processed, increase if soft.
+
+deliberation:
+  initial_system: |
+    You are an expert e-commerce product image quality evaluator for the LUXBOY platform.
+    You are part of a multi-AI panel evaluating processed product images.
+    Analyze the images carefully and provide your independent assessment.
+    Return ONLY a JSON object. Do not include any text outside the JSON.
+
+  initial_user_template: |
+    You are evaluating a processed product image for an e-commerce platform.
+    - Image 1 (FIRST): ORIGINAL product photo
+    - Image 2 (SECOND): PROCESSED result (background removed, shadow added, enhanced)
+
+    Processing parameters used:
+    {current_params}
+
+    IMPORTANT context about shadow processing:
+    - "transplant" mode: The shadow is extracted by computing the absolute brightness difference from the original background (255 - (bg - pixel)). The goal is to preserve the original shadow's brightness, contrast, opacity, and natural gradation as faithfully as possible. If the processed shadow looks faded, washed out, or different from the original, this is a critical issue.
+    - Compare the shadow in the PROCESSED image pixel-for-pixel against the ORIGINAL. The transplanted shadow should look nearly identical to the original shadow on a white background.
+
+    Provide your independent evaluation. Score each criterion (1-10, 10=perfect):
+    1. shadow_naturalness: Does the shadow look natural and match the original? For transplant mode: is the brightness/contrast/opacity of the shadow faithfully preserved from the original?
+    2. color_accuracy: Does the product color match the original?
+    3. detail_preservation: Are fine details preserved without artifacts?
+    4. overall_quality: Professional quality for luxury e-commerce?
+    5. background_cleanliness: Clean white background without artifacts?
+
+    Also identify:
+    - Whether issues can be fixed by parameter adjustment alone
+    - Whether any issues require CODE-LEVEL changes (algorithm bugs, logic errors, pipeline flow issues, etc.)
+    - For shadow issues in transplant mode: focus on whether post-processing steps (threshold, opacity, distance_falloff) are artificially weakening the transplanted shadow
+
+    Return this JSON:
+    {{
+      "evaluator": "<your model name>",
+      "scores": {{
+        "shadow_naturalness": <1-10>,
+        "color_accuracy": <1-10>,
+        "detail_preservation": <1-10>,
+        "overall_quality": <1-10>,
+        "background_cleanliness": <1-10>
+      }},
+      "average_score": <float>,
+      "verdict": "<perfect | acceptable | needs_improvement>",
+      "problems": ["<problem 1>", ...],
+      "reasoning": "<detailed explanation>",
+      "adjusted_params": {{
+        "shadow_config": <object or null>,
+        "enhance_config": <object or null>
+      }},
+      "code_issues": [
+        {{
+          "severity": "<critical | major | minor>",
+          "description": "<what's wrong>",
+          "suggested_fix": "<how to fix it in code>"
+        }}
+      ]
+    }}
+
+    Verdict rules:
+    - "perfect": ALL scores >= 9
+    - "acceptable": ALL scores >= 7, no single score < 6
+    - "needs_improvement": Any score < 7
+
+  discussion_system: |
+    You are part of a multi-AI expert panel evaluating product image processing quality.
+    You have seen the original and processed images. Now review the combined assessments from all panel members (including your own previous assessment).
+    Discuss the findings, resolve disagreements, and work toward a consensus.
+    Return ONLY a JSON object.
+
+  discussion_user_template: |
+    Here are the evaluations from all panel members for this image:
+
+    {all_evaluations}
+
+    Discussion round {round_num} of max {max_rounds}.
+
+    Review all evaluations above. Consider:
+    1. Where do the evaluators agree? Where do they disagree?
+    2. Which evaluator's assessment seems most accurate and why?
+    3. What is the consensus on parameter adjustments?
+    4. Are there code-level issues that multiple evaluators identified?
+
+    Provide your updated assessment incorporating insights from all evaluators.
+    If you now agree with a different evaluator's finding, update your scores/params accordingly.
+
+    Return this JSON:
+    {{
+      "evaluator": "<your model name>",
+      "scores": {{
+        "shadow_naturalness": <1-10>,
+        "color_accuracy": <1-10>,
+        "detail_preservation": <1-10>,
+        "overall_quality": <1-10>,
+        "background_cleanliness": <1-10>
+      }},
+      "average_score": <float>,
+      "verdict": "<perfect | acceptable | needs_improvement>",
+      "consensus_reached": <boolean, true if you believe all evaluators would now agree>,
+      "problems": ["<problem>", ...],
+      "reasoning": "<explanation of your updated view and areas of agreement/disagreement>",
+      "adjusted_params": {{
+        "shadow_config": <object or null>,
+        "enhance_config": <object or null>
+      }},
+      "code_issues": [
+        {{
+          "severity": "<critical | major | minor>",
+          "description": "<what's wrong>",
+          "suggested_fix": "<how to fix>"
+        }}
+      ]
+    }}
+
+  consensus_system: |
+    You are the final arbiter of a multi-AI panel discussion about product image quality.
+    Merge all discussion results into a single consensus verdict.
+    Return ONLY a JSON object.
+
+  consensus_user_template: |
+    Final discussion results from all AI evaluators after {total_rounds} round(s):
+
+    {final_evaluations}
+
+    Merge these into a SINGLE consensus result. Use the median of all scores.
+    For adjusted_params, prefer the most conservative (smallest) changes that address identified issues.
+    For code_issues, include any issue that at least 2 out of 3 evaluators flagged.
+
+    Return this JSON:
+    {{
+      "scores": {{
+        "shadow_naturalness": <1-10>,
+        "color_accuracy": <1-10>,
+        "detail_preservation": <1-10>,
+        "overall_quality": <1-10>,
+        "background_cleanliness": <1-10>
+      }},
+      "average_score": <float>,
+      "verdict": "<perfect | acceptable | needs_improvement>",
+      "problems": ["<merged problems>", ...],
+      "reasoning": "<consensus reasoning>",
+      "adjusted_params": {{
+        "shadow_config": <object or null>,
+        "enhance_config": <object or null>
+      }},
+      "code_issues": [
+        {{
+          "severity": "<critical | major | minor>",
+          "description": "<what's wrong>",
+          "suggested_fix": "<how to fix>"
+        }}
+      ]
+    }}

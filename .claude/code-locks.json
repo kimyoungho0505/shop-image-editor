@@ -1,0 +1,13 @@
+{
+  "locks": [
+    {
+      "id": "hand_crop_margin",
+      "file_path": "src/pipeline.py",
+      "label": "hand_crop_margin",
+      "description": "손 크롭 4% 마진 + 상하좌우 겹침 제거 로직",
+      "locked_code_snippet": "                hand_margin = int(max(w, h) * 0.04)  # 손 쪽 추가 4% 여유\n\n                # 손이 상품 왼쪽에 있으면 → 왼쪽 경계를 손 오른쪽 끝 + 여유로\n                if h_cx < p_cx and hx2 > px1:\n                    new_px1 = min(hx2 + hand_margin, px1 + int((px2 - px1) * 0.3))\n                    _log(f\"  손(왼쪽) 겹침 제거: x1 {px1}→{new_px1} (+{hand_margin}px 여유)\")\n                    px1 = new_px1\n                # 손이 상품 오른쪽에 있으면 → 오른쪽 경계를 손 왼쪽 끝 - 여유로\n                elif h_cx >= p_cx and hx1 < px2:\n                    new_px2 = max(hx1 - hand_margin, px2 - int((px2 - px1) * 0.3))\n                    _log(f\"  손(오른쪽) 겹침 제거: x2 {px2}→{new_px2} (+{hand_margin}px 여유)\")\n                    px2 = new_px2\n\n                h_cy = (hy1 + hy2) / 2  # 손 중심 y\n                p_cy = (py1 + py2) / 2   # 상품 중심 y\n\n                # 손이 상품 위쪽에 있으면\n                if h_cy < p_cy and hy2 > py1:\n                    new_py1 = min(hy2 + hand_margin, py1 + int((py2 - py1) * 0.3))\n                    _log(f\"  손(위쪽) 겹침 제거: y1 {py1}→{new_py1} (+{hand_margin}px 여유)\")\n                    py1 = new_py1\n                # 손이 상품 아래쪽에 있으면\n                elif h_cy >= p_cy and hy1 < py2:\n                    new_py2 = max(hy1 - hand_margin, py2 - int((py2 - py1) * 0.3))\n                    _log(f\"  손(아래쪽) 겹침 제거: y2 {py2}→{new_py2} (+{hand_margin}px 여유)\")\n                    py2 = new_py2",
+      "locked_at": "2026-04-02T16:00:00+09:00",
+      "reason": "확정: 4% 마진이 최적. 15%→5%→2%→4% 반복 테스트 후 결정"
+    }
+  ]
+}

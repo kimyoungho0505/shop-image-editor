@@ -1,0 +1,229 @@
+output:
+  width: 1000
+  height: 1000
+  max_file_size_kb: 2024
+  background_color:
+  - 255
+  - 255
+  - 255
+  default_jpeg_quality: 95
+image:
+  supported_formats:
+  - .jpg
+  - .jpeg
+  - .png
+  - .bmp
+  - .tiff
+  - .webp
+api:
+  model: claude-haiku-4-5-20251001
+  max_tokens: 2048
+  temperature: 0.1
+providers:
+  vision: gemini
+  background_removal: photoroom
+  enhancement: claid
+  shadow: gemini_shadow
+openai:
+  model: gpt-4o
+  max_tokens: 2048
+  temperature: 0.1
+gemini:
+  model: gemini-2.5-pro
+  max_tokens: 4096
+  temperature: 0.1
+grok:
+  model: grok-4-fast-non-reasoning
+  max_tokens: 2048
+  temperature: 0.1
+shadow_extract:
+  method: transplant
+  opacity: 70
+  threshold: 15
+  blur: 10.0
+  search_top: 10
+  search_bottom: 150
+  search_sides: 80
+  mask_expand: 3.0
+  distance_falloff: 100
+removebg:
+  size: auto
+  type: product
+hybrid_bg:
+  verify_method: vision_api
+opencv_enhance:
+  full:
+    hdr: 20
+    sharpness: 15
+    exposure: 0
+    saturation: 0
+    contrast: 0
+  detail:
+    hdr: 15
+    sharpness: 10
+    exposure: 0
+    saturation: 0
+    contrast: 0
+  worn:
+    hdr: 10
+    sharpness: 5
+    exposure: 0
+    saturation: 0
+    contrast: 0
+  package:
+    hdr: 20
+    sharpness: 15
+    exposure: 0
+    saturation: 0
+    contrast: 0
+photoroom:
+  full:
+    removeBackground: true
+    outputSize: originalImage
+    padding: 0.05
+    scaling: fit
+    export.format: png
+    shadow.mode: ai.soft
+    shadow.opacity: 0.5
+  detail_complex:
+    removeBackground: true
+    positioning: originalImage
+    outputSize: originalImage
+    padding: 0
+    scaling: fit
+    export.format: png
+  package:
+    removeBackground: true
+    outputSize: originalImage
+    padding: 0.08
+    scaling: fit
+    export.format: png
+    shadow.mode: ai.soft
+    shadow.opacity: 0.5
+sam:
+  model_variant: sam_vit_b (CPU)
+  checkpoint: null
+  mask_smoothing: true
+auto_options:
+  claid: ai_auto
+  opencv: ai_auto
+  photoroom: ai_auto
+  shadow: ai_auto
+claid:
+  full:
+    hdr: 20
+    sharpness: 10
+    exposure: 20
+    saturation: 5
+    contrast: 10
+  detail:
+    fit: canvas
+    width: 1000
+    height: 1000
+    hdr: 15
+    sharpness: 10
+    background_color: '#FFFFFF'
+  worn:
+    fit: bounds
+    width: 1000
+    hdr: 10
+    sharpness: 5
+  package:
+    hdr: 20
+    sharpness: 15
+gemini_shadow:
+  main_prompt: '(가장 중요) 제공된 PNG 이미지의 알파 채널과 제품의 모든 픽셀 위치, 스케일(크기)을 0.001%의 변경도 없이
+    100% 그대로 고정하세요. 제품의 크기를 키우거나 위치를 옮기는 행위를 최우선으로 금지합니다. ★ 제품의 좌우 반전(수평 뒤집기) 또는 상하
+    반전(수직 뒤집기)을 절대 허용하지 않습니다. 제품의 원래 방향과 시각적 위치는 단 한 픽셀의 변화도 없이 100% 동일하게 유지되어야 합니다.
+
+    1. 배경 보존: 배경은 결점 없는 순백색(#FFFFFF)을 유지하세요. 배경에 어떤 색상이나 그라데이션도 추가하지 마세요.
+
+    2. 입체적 조명 처리: 제품의 질감과 색조를 보호하면서, 제품 자체의 입체감을 살리는 자연스러운 조명을 유지하세요.
+
+    3. 접지 그림자 생성 (최우선): 제품의 전체 하단 실루엣을 따라 일률적인 그림자를 생성하지 마세요. 대신, 제품이 바닥과 실제로 맞닿는
+    접지면(contact surface)에만 집중하여 아주 얇고 부드러운 투명 그레이 접지 그림자(contact shadow)를 추가하세요. 제품의
+    공중에 떠 있는 부분이나 바닥에 닿지 않는 부분에는 그림자를 만들지 마세요. 그림자는 제품의 무게가 실리는 바닥 접촉면에서만 자연스럽게 퍼져야
+    합니다. ★ 그림자 농도(opacity)는 약 5% 수준으로 극히 연하게 적용하세요. 거의 눈에 띄지 않을 정도로 미세한 그림자만 허용됩니다.
+    흰 배경(#FFFFFF) 위에 약간의 회색 힌트만 보이는 수준이어야 합니다.
+
+    4. 바닥 표면 정의: 바닥은 100% 완전한 무광택(matte) 표면입니다. 두꺼운 도화지(cardstock paper)나 스케치북처럼 어떤
+    형태의 광택이나 반사율도 절대 없는 표면을 상상하세요. 제품이 아무리 광택이 있거나 금속성이라 하더라도 바닥에 반사되어서는 안 됩니다. 그림자란
+    빛을 차단하여 바닥에 드리우는 어두운 영역이지, 바닥 표면 자체가 제품을 비추는 반사가 아닙니다.
+
+    5. 엄격한 금지 사항: (a) 제품을 확대/축소하거나 위치를 옮기는 행위 금지. (b) 경계선을 뭉개는 블러(Blur) 처리나 과도한 화이트닝
+    금지. (c) ★ 바닥 반사/거울상/잔상/빛 번짐 등 모든 광학적 효과(optical effects) 생성 절대 금지. 제품의 형태가 바닥에
+    비치는 거울 효과(mirror/reflection), 물에 비친 듯한 효과, 광택 표면 반사 효과를 어떠한 형태로든 추가하지 마세요. 오직
+    불투명한 접지 그림자(contact shadow)만 허용됩니다. (d) ★ 배경을 어둡게 만들거나 색상을 변경하는 행위 절대 금지. 배경은
+    반드시 순백색(#FFFFFF)을 유지해야 합니다. (e) ★ 제품의 좌우 반전(horizontal flip/mirror), 상하 반전(vertical
+    flip), 회전(rotation) 절대 금지. 제품이 바라보는 방향이 원본과 반드시 동일해야 합니다.'
+  mannequin_prompt: '위 이미지는 마네킹에 착용된 의류 원본 사진입니다. 다음 작업을 수행해주세요:
+
+    1. 배경을 완전히 제거하고 깨끗한 흰색(#FFFFFF)으로 교체하세요.
+
+    2. 마네킹/토르소/스탠드를 완전히 제거하세요.
+
+    3. 마네킹이 감시지 그림자는 생성하지 않습니다.
+
+
+    의류 자체(색상, 질감, 로고, 지퍼 등)는 절대 변경하지 마세요. 럭셔리 이커머스 제품 사진처럼 고급스럽게 만들어주세요.'
+  order: after_enhance
+  model: gemini-3-pro-image-preview
+  fallback_model: gemini-3-pro-image-preview
+  original_prompt: '위 이미지는 원본 제품 사진입니다. 원본에 있는 자연스러운 그림자의 방향, 농도, 부드러움을 참고하세요.
+
+    원본 사진의 그림자를 최대한 동일하게 재현해주세요. 그림자의 방향이 같도록 해주세요 피사체의 원형은 변경하지 않습니다.'
+grok_shadow:
+  model: grok-imagine-image
+  main_prompt: '이 PNG 이미지에 부드러운 드롭 쉐도우를 추가해줘.
+
+
+    조건:
+
+    - 알파 채널을 기준으로 처리할 것
+
+    - 투명하지 않은 픽셀(객체 영역)에서만 그림자 생성
+
+    - 투명 영역은 완전히 무시
+
+    - 원본 객체는 절대 변경하지 말 것
+
+
+    그림자 설정:
+
+    - 불투명도: 낮게 (10~25%)
+
+    - 블러: 높게 (부드러운 가장자리)
+
+    - 퍼짐: 최소
+
+    - 위치: 객체 바로 아래 (약간 아래쪽 오프셋)
+
+    - 가장자리: 자연스럽게 흐려지는 그라데이션
+
+
+    쇼핑몰 제품 이미지처럼 자연스러운 스튜디오 그림자 느낌으로 처리
+
+    PNG 투명 배경 유지 그림자 농도는 5%'
+  mannequin_prompt: '위 이미지는 마네킹에 착용된 의류 원본 사진입니다. 다음 작업을 수행해주세요:
+
+    1. 배경을 완전히 제거하고 깨끗한 흰색(#FFFFFF)으로 교체하세요.
+
+    2. 마네킹/토르소/스탠드를 완전히 제거하세요.
+
+    3. 마네킹이 감시지 그림자는 생성하지 않습니다.'
+  order: after_enhance
+  original_prompt: '위 이미지는 원본 제품 사진입니다. 원본에 있는 자연스러운 그림자의 방향, 농도, 부드러움을 참고하세요.
+
+    원본 사진의 그림자를 최대한 동일하게 재현해주세요.'
+tts:
+  provider: openai
+  openai_model: tts-1-hd
+  speed: 1.0
+  voices:
+    claude: alloy
+    chatgpt: nova
+    gemini: echo
+    mc: shimmer
+concurrent_workers: 8
+shadow_composite_method: layer_extract
+shadow_judge_mode: auto

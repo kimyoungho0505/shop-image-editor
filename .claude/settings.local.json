@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(start:*)",
+      "Bash(pip install:*)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''gui.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''gui.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''문법 OK''\\)\")",
+      "Bash(timeout 8 python gui.py)",
+      "Bash(python -c \":*)",
+      "WebFetch(domain:www.okmall.com)",
+      "Bash(python:*)"
+    ]
+  }
+}

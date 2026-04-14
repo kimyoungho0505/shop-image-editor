@@ -1,0 +1,23 @@
+{
+  "input_folder": "X:/촬영팀/AI/촬영본/04.06/26-04-06_015.jpg",
+  "output_folder": "D:/CLAUDE_CODE_WORK/output",
+  "vision_provider": "gemini",
+  "bg_provider": "removebg",
+  "enhance_provider": "claid",
+  "shadow_provider": "gemini_shadow",
+  "shadow_judge_mode": "auto",
+  "shadow_composite": "layer_extract",
+  "skip_bg": false,
+  "skip_analysis": false,
+  "pre_cropped": true,
+  "auto_refine": false,
+  "max_iterations": 3,
+  "concurrent_workers": 8,
+  "category": "shoes",
+  "api_key": "",
+  "shadow": true,
+  "shadow_opacity": 0.7220588235294118,
+  "_selected_files": [
+    "//192.168.10.3/위즈컴퍼니 뉴 서버/WIZCOMPANY/ORDER LIST/CLAUDE/04.06/005A7163.jpg"
+  ]
+}

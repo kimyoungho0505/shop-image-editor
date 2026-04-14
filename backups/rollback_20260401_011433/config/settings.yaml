@@ -1,0 +1,127 @@
+output:
+  width: 1000
+  height: 1000
+  max_file_size_kb: 2024
+  background_color:
+  - 255
+  - 255
+  - 255
+  default_jpeg_quality: 95
+image:
+  supported_formats:
+  - .jpg
+  - .jpeg
+  - .png
+  - .bmp
+  - .tiff
+  - .webp
+api:
+  model: claude-opus-4-20250514
+  max_tokens: 2048
+  temperature: 0.1
+providers:
+  vision: gemini
+  background_removal: removebg
+  enhancement: claid
+  shadow: sam_gpu_h
+openai:
+  model: gpt-4o
+  max_tokens: 2048
+  temperature: 0.1
+gemini:
+  model: gemini-2.5-pro
+  max_tokens: 2048
+  temperature: 0.1
+shadow_extract:
+  method: transplant
+  opacity: 70
+  threshold: 15
+  blur: 10.0
+  search_top: 10
+  search_bottom: 150
+  search_sides: 80
+  mask_expand: 3.0
+  distance_falloff: 100
+removebg:
+  size: auto
+  type: product
+opencv_enhance:
+  full:
+    hdr: 20
+    sharpness: 15
+    exposure: 0
+    saturation: 0
+    contrast: 0
+  detail:
+    hdr: 15
+    sharpness: 10
+    exposure: 0
+    saturation: 0
+    contrast: 0
+  worn:
+    hdr: 10
+    sharpness: 5
+    exposure: 0
+    saturation: 0
+    contrast: 0
+  package:
+    hdr: 20
+    sharpness: 15
+    exposure: 0
+    saturation: 0
+    contrast: 0
+photoroom:
+  full:
+    removeBackground: true
+    outputSize: originalImage
+    padding: 0.05
+    scaling: fit
+    export.format: png
+    shadow.mode: ai.soft
+    shadow.opacity: 0.5
+  detail_complex:
+    removeBackground: true
+    positioning: originalImage
+    outputSize: originalImage
+    padding: 0
+    scaling: fit
+    export.format: png
+  package:
+    removeBackground: true
+    outputSize: originalImage
+    padding: 0.08
+    scaling: fit
+    export.format: png
+    shadow.mode: ai.soft
+    shadow.opacity: 0.5
+sam:
+  model_variant: sam_vit_b (CPU)
+  checkpoint: null
+  mask_smoothing: true
+auto_options:
+  claid: ai_auto
+  opencv: ai_auto
+  photoroom: ai_auto
+  shadow: ai_auto
+claid:
+  full:
+    hdr: 20
+    sharpness: 10
+    exposure: 20
+    saturation: 5
+    contrast: 10
+  detail:
+    fit: canvas
+    width: 1000
+    height: 1000
+    hdr: 15
+    sharpness: 10
+    background_color: '#FFFFFF'
+  worn:
+    fit: bounds
+    width: 1000
+    hdr: 10
+    sharpness: 5
+  package:
+    hdr: 20
+    sharpness: 15

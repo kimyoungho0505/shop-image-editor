@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>쇼핑몰 이미지 편집기 - 디자인 샘플</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #0f1117; color: #e2e8f0; height: 100vh; display: flex; flex-direction: column; }
+
+  /* 타이틀바 */
+  .titlebar {
+    background: #1a1d2e;
+    border-bottom: 1px solid #2d3148;
+    padding: 0 16px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    -webkit-app-region: drag;
+  }
+  .titlebar-left { display: flex; align-items: center; gap: 10px; }
+  .app-icon { width: 22px; height: 22px; background: linear-gradient(135deg, #6366f1, #8b5cf6); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .app-title { font-size: 13px; font-weight: 600; color: #c4c9e2; }
+  .titlebar-controls { display: flex; gap: 8px; }
+  .ctrl-btn { width: 13px; height: 13px; border-radius: 50%; cursor: pointer; }
+  .ctrl-close { background: #ff5f57; }
+  .ctrl-min { background: #febc2e; }
+  .ctrl-max { background: #28c840; }
+
+  /* 메인 레이아웃 */
+  .layout { display: flex; flex: 1; overflow: hidden; }
+
+  /* 사이드바 */
+  .sidebar {
+    width: 220px;
+    background: #13151f;
+    border-right: 1px solid #1e2133;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 0;
+  }
+  .sidebar-section { padding: 0 12px; margin-bottom: 6px; }
+  .sidebar-label { font-size: 10px; font-weight: 700; color: #4a5180; letter-spacing: 0.1em; text-transform: uppercase; padding: 0 8px; margin-bottom: 4px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 8px; cursor: pointer;
+    font-size: 13px; color: #8890b5; transition: all 0.15s;
+    margin-bottom: 2px;
+  }
+  .nav-item:hover { background: #1e2133; color: #c4c9e2; }
+  .nav-item.active { background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2)); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.3); }
+  .nav-icon { width: 18px; text-align: center; font-size: 14px; }
+  .nav-badge { margin-left: auto; background: #6366f1; color: white; font-size: 10px; padding: 1px 6px; border-radius: 10px; }
+
+  /* 메인 영역 */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* 탭 헤더 */
+  .tab-header {
+    background: #13151f;
+    border-bottom: 1px solid #1e2133;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 44px;
+  }
+  .tab {
+    padding: 6px 16px; border-radius: 6px; font-size: 13px;
+    color: #6b7299; cursor: pointer; transition: all 0.15s;
+  }
+  .tab:hover { color: #c4c9e2; background: #1e2133; }
+  .tab.active { color: #a5b4fc; background: rgba(99,102,241,0.15); }
+
+  /* 컨텐츠 */
+  .content { flex: 1; padding: 20px; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-content: start; }
+
+  /* 카드 */
+  .card {
+    background: #1a1d2e;
+    border: 1px solid #1e2340;
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .card-title { font-size: 13px; font-weight: 600; color: #8890b5; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+  .card-title-icon { font-size: 15px; }
+
+  /* 폴더 선택 카드 */
+  .folder-card { grid-column: 1 / -1; }
+  .folder-input-row { display: flex; gap: 10px; align-items: center; }
+  .folder-input {
+    flex: 1; background: #0f1117; border: 1px solid #2d3148;
+    border-radius: 8px; padding: 10px 14px; color: #c4c9e2;
+    font-size: 13px; outline: none;
+  }
+  .folder-input:focus { border-color: #6366f1; }
+  .btn {
+    padding: 9px 18px; border-radius: 8px; font-size: 13px;
+    font-weight: 500; cursor: pointer; border: none; transition: all 0.15s;
+  }
+  .btn-secondary { background: #2d3148; color: #a5b4fc; }
+  .btn-secondary:hover { background: #363b5e; }
+  .btn-primary {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white; padding: 10px 24px; font-size: 14px; font-weight: 600;
+  }
+  .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(99,102,241,0.4); }
+  .folder-stats { display: flex; gap: 16px; margin-top: 12px; }
+  .stat-chip {
+    background: #0f1117; border: 1px solid #2d3148;
+    border-radius: 6px; padding: 5px 12px; font-size: 12px; color: #6b7299;
+  }
+  .stat-chip span { color: #a5b4fc; font-weight: 600; }
+
+  /* 옵션 카드 */
+  .option-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #1e2133; }
+  .option-row:last-child { border-bottom: none; }
+  .option-label { font-size: 13px; color: #c4c9e2; }
+  .option-desc { font-size: 11px; color: #4a5180; margin-top: 2px; }
+  .toggle { width: 38px; height: 22px; background: #2d3148; border-radius: 11px; position: relative; cursor: pointer; transition: background 0.2s; }
+  .toggle.on { background: #6366f1; }
+  .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; background: white; border-radius: 50%; top: 3px; left: 3px; transition: transform 0.2s; }
+  .toggle.on::after { transform: translateX(16px); }
+
+  /* 진행상황 카드 */
+  .progress-card { grid-column: 1 / -1; }
+  .progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .progress-title { font-size: 13px; color: #c4c9e2; }
+  .progress-pct { font-size: 22px; font-weight: 700; color: #a5b4fc; }
+  .progress-bar-bg { background: #0f1117; border-radius: 6px; height: 8px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: 6px; width: 68%; position: relative; }
+  .progress-bar-fill::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 20px; background: rgba(255,255,255,0.3); filter: blur(4px); }
+  .progress-detail { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: #4a5180; }
+  .log-box { margin-top: 12px; background: #0f1117; border-radius: 8px; padding: 12px; height: 100px; overflow-y: auto; font-size: 12px; font-family: 'Consolas', monospace; }
+  .log-line { color: #4a5180; line-height: 1.6; }
+  .log-line.ok { color: #34d399; }
+  .log-line.info { color: #60a5fa; }
+  .log-line.warn { color: #fbbf24; }
+
+  /* 실행 버튼 영역 */
+  .action-bar {
+    padding: 16px 20px;
+    background: #13151f;
+    border-top: 1px solid #1e2133;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; display: inline-block; margin-right: 8px; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .status-text { font-size: 13px; color: #6b7299; }
+
+  /* 스크롤바 */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2d3148; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- 타이틀바 -->
+<div class="titlebar">
+  <div class="titlebar-left">
+    <div class="app-icon">🖼</div>
+    <span class="app-title">쇼핑몰 이미지 편집기</span>
+  </div>
+  <div class="titlebar-controls">
+    <div class="ctrl-btn ctrl-close"></div>
+    <div class="ctrl-btn ctrl-min"></div>
+    <div class="ctrl-btn ctrl-max"></div>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- 사이드바 -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">메뉴</div>
+      <div class="nav-item active">
+        <span class="nav-icon">🏠</span> 메인
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">✏️</span> 프롬프트 관리
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">⚙️</span> 설정
+      </div>
+    </div>
+    <div class="sidebar-section" style="margin-top: 12px;">
+      <div class="sidebar-label">최근 작업</div>
+      <div class="nav-item">
+        <span class="nav-icon">📁</span> 봄신상_2026
+        <span class="nav-badge">42</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">📁</span> 여름_프리뷰
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">📁</span> 기획전_배너
+      </div>
+    </div>
+  </div>
+
+  <!-- 메인 -->
+  <div class="main">
+    <div class="tab-header">
+      <div class="tab active">이미지 처리</div>
+      <div class="tab">결과 미리보기</div>
+      <div class="tab">배치 로그</div>
+    </div>
+
+    <div class="content">
+
+      <!-- 폴더 선택 -->
+      <div class="card folder-card">
+        <div class="card-title"><span class="card-title-icon">📂</span> 작업 폴더</div>
+        <div class="folder-input-row">
+          <input class="folder-input" type="text" value="D:\쇼핑몰\2026_봄신상\원본이미지\" readonly>
+          <button class="btn btn-secondary">폴더 선택</button>
+          <button class="btn btn-secondary">출력 폴더</button>
+        </div>
+        <div class="folder-stats">
+          <div class="stat-chip">총 이미지 <span>142개</span></div>
+          <div class="stat-chip">처리 완료 <span>96개</span></div>
+          <div class="stat-chip">대기 중 <span>46개</span></div>
+          <div class="stat-chip">용량 <span>2.3 GB</span></div>
+        </div>
+      </div>
+
+      <!-- 처리 옵션 -->
+      <div class="card">
+        <div class="card-title"><span class="card-title-icon">🎛️</span> 처리 옵션</div>
+        <div class="option-row">
+          <div>
+            <div class="option-label">배경 제거</div>
+            <div class="option-desc">SAM 모델 사용</div>
+          </div>
+          <div class="toggle on"></div>
+        </div>
+        <div class="option-row">
+          <div>
+            <div class="option-label">그림자 추가</div>
+            <div class="option-desc">자연스러운 드롭 섀도우</div>
+          </div>
+          <div class="toggle on"></div>
+        </div>
+        <div class="option-row">
+          <div>
+            <div class="option-label">여백 자동 조정</div>
+            <div class="option-desc">제품 중심 크롭</div>
+          </div>
+          <div class="toggle"></div>
+        </div>
+        <div class="option-row">
+          <div>
+            <div class="option-label">AI 보정</div>
+            <div class="option-desc">색감 · 밝기 자동 최적화</div>
+          </div>
+          <div class="toggle on"></div>
+        </div>
+      </div>
+
+      <!-- 출력 설정 -->
+      <div class="card">
+        <div class="card-title"><span class="card-title-icon">💾</span> 출력 설정</div>
+        <div class="option-row">
+          <div>
+            <div class="option-label">출력 형식</div>
+            <div class="option-desc">파일 포맷</div>
+          </div>
+          <select style="background:#0f1117;border:1px solid #2d3148;color:#c4c9e2;padding:5px 10px;border-radius:6px;font-size:12px;">
+            <option>PNG (투명)</option>
+            <option>JPEG</option>
+            <option>WebP</option>
+          </select>
+        </div>
+        <div class="option-row">
+          <div>
+            <div class="option-label">크기 리사이즈</div>
+            <div class="option-desc">쇼핑몰 규격에 맞춤</div>
+          </div>
+          <select style="background:#0f1117;border:1px solid #2d3148;color:#c4c9e2;padding:5px 10px;border-radius:6px;font-size:12px;">
+            <option>1000 × 1000</option>
+            <option>800 × 800</option>
+            <option>원본 유지</option>
+          </select>
+        </div>
+        <div class="option-row">
+          <div>
+            <div class="option-label">파일명 규칙</div>
+            <div class="option-desc">자동 넘버링</div>
+          </div>
+          <div class="toggle on"></div>
+        </div>
+        <div class="option-row">
+          <div>
+            <div class="option-label">GPU 가속</div>
+            <div class="option-desc">CUDA 사용</div>
+          </div>
+          <div class="toggle"></div>
+        </div>
+      </div>
+
+      <!-- 진행 상황 -->
+      <div class="card progress-card">
+        <div class="card-title"><span class="card-title-icon">⚡</span> 처리 현황</div>
+        <div class="progress-header">
+          <div class="progress-title">봄신상_2026 처리 중...</div>
+          <div class="progress-pct">68%</div>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill"></div>
+        </div>
+        <div class="progress-detail">
+          <span>96 / 142 완료</span>
+          <span>남은 시간 약 2분 14초</span>
+          <span>처리 속도 0.8 img/s</span>
+        </div>
+        <div class="log-box">
+          <div class="log-line ok">✓ IMG_0096.jpg — 배경 제거 완료 (0.92s)</div>
+          <div class="log-line ok">✓ IMG_0095.jpg — 그림자 추가 완료</div>
+          <div class="log-line info">→ IMG_0097.jpg — AI 보정 처리 중...</div>
+          <div class="log-line warn">⚠ IMG_0081.jpg — 저해상도 경고 (480px)</div>
+          <div class="log-line ok">✓ IMG_0094.jpg — 출력 저장 완료</div>
+          <div class="log-line ok">✓ IMG_0093.jpg — 배경 제거 완료 (1.1s)</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 하단 실행 바 -->
+    <div class="action-bar">
+      <div>
+        <span class="status-dot"></span>
+        <span class="status-text">처리 중 — IMG_0097.jpg</span>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-secondary">일시정지</button>
+        <button class="btn btn-secondary">중단</button>
+        <button class="btn btn-primary">▶ 처리 시작</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

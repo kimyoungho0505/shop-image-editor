@@ -1,0 +1,132 @@
+categories:
+  accessories:
+    display_name: 잡화
+    padding_percent:
+      top: 10
+      bottom: 10
+      left: 10
+      right: 10
+    thumbnail_padding:
+      top: 359
+      bottom: 359
+      left: 148
+      right: 148
+  wallet:
+    display_name: 지갑
+    padding_percent:
+      top: 10
+      bottom: 10
+      left: 10
+      right: 10
+    thumbnail_padding:
+      top: 359
+      bottom: 359
+      left: 148
+      right: 148
+  kids:
+    display_name: 아동복
+    padding_percent:
+      top: 10
+      bottom: 10
+      left: 10
+      right: 10
+    thumbnail_padding:
+      top: 359
+      bottom: 359
+      left: 148
+      right: 148
+  clothing:
+    display_name: 의류
+    padding_percent:
+      top: 10
+      bottom: 10
+      left: 10
+      right: 10
+    thumbnail_padding:
+      top: 452
+      bottom: 457
+      left: 0
+      right: 0
+  clothing_model:
+    display_name: 모델이 입은 의류
+    padding_percent:
+      top: 10
+      bottom: 10
+      left: 10
+      right: 10
+    thumbnail_padding:
+      top: 63
+      bottom: 500
+      left: 0
+      right: 0
+  clothing_model_top:
+    display_name: 의류모델-상의
+    padding_percent:
+      top: 10
+      bottom: 10
+      left: 10
+      right: 10
+    thumbnail_padding:
+      top: 63
+      bottom: 500
+      left: 0
+      right: 0
+  shoes:
+    display_name: 신발
+    padding_percent:
+      top: 10
+      bottom: 10
+      left: 10
+      right: 10
+    thumbnail_padding:
+      top: 359
+      bottom: 359
+      left: 100
+      right: 100
+  belt:
+    display_name: 벨트/팔찌
+    padding_percent:
+      top: 10
+      bottom: 10
+      left: 10
+      right: 10
+    thumbnail_padding:
+      top: 359
+      bottom: 807
+      left: 148
+      right: 148
+  scarf:
+    display_name: 스카프
+    padding_percent:
+      top: 10
+      bottom: 10
+      left: 10
+      right: 10
+    thumbnail_padding:
+      top: 359
+      bottom: 359
+      left: 148
+      right: 148
+  bag:
+    display_name: 가방
+    padding_percent:
+      top: 10
+      bottom: 10
+      left: 10
+      right: 10
+    thumbnail_padding:
+      top: 359
+      bottom: 359
+      left: 148
+      right: 148
+default:
+  padding_percent:
+    top: 10
+    bottom: 10
+    left: 10
+    right: 10
+  thumbnail_padding:
+    top: 359
+    bottom: 359
+    left: 148
+    right: 148
