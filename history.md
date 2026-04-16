@@ -1,6 +1,6 @@
 # LUXBOY Shop Image Editor - 개발 히스토리
 
-> 마지막 업데이트: 2026-04-01 (2차)
+> 마지막 업데이트: 2026-04-17 (3차)
 > 다른 PC에서 이어서 개발할 때 이 문서를 참고하세요.
 
 ---
@@ -14,7 +14,21 @@
 
 ```
 shop-image-editor/
-├── gui.py                          # 메인 GUI (tkinter, ~2450줄)
+├── gui.py                          # GUI v1 (tkinter, ~2450줄) - 기존
+├── gui_pyside.py                   # GUI 기본 (PySide6) - 기존
+├── gui2.py                         # GUI v2 (PySide6 향상판) ⭐ NEW
+├── gui2_pyside/                    # GUI v2 모듈들
+│   ├── app.py                      # 메인 윈도우 (사이드바 + 카드 레이아웃)
+│   ├── styles.py                   # 스타일시트 (모던 라이트 테마)
+│   ├── tabs/                       # 탭 모듈들
+│   └── dialogs/                    # 다이얼로그 모듈들
+├── design_samples/                 # PySide6 디자인 샘플들 ⭐ NEW
+│   ├── sample1_sidebar_card.py    # 모던 라이트 (사이드바 + 카드)
+│   ├── sample2_dark_glassmorphism.py # 다크 글래스모피즘 (프리미엄)
+│   ├── sample3_minimal_clean.py    # 미니멀 클린 (Apple 스타일)
+│   ├── sample_viewfinder.py        # 뷰파인더 다중탭 버전
+│   └── sample_viewfinder_split.py  # 뷰파인더 좌우분할 버전
+├── manual.html                     # 사용자 메뉴얼 (브라우저) ⭐ NEW
 ├── config/
 │   ├── settings.yaml               # 전체 설정 (프로바이더, 파라미터)
 │   └── prompts.yaml                # Vision API 프롬프트 템플릿 (분석 + 6단계 회의)
@@ -241,3 +255,106 @@ CLAID_API_KEY=...
 - **Gemini 그림자 + 생성형 그림자**: `_detect_shadow_in_original()` 결과와 무관하게 항상 `needs_shadow = True` (생성형은 새로 만드는 것)
 - **누끼 이미지 mime type**: removebg/photoroom 결과는 PNG → Gemini 전송 시 자동 감지 필요 (jpeg로 보내면 안 됨)
 - **IME 이슈**: ScrolledText에 state 토글 절대 사용 금지 (한글 입력 깨짐)
+
+---
+
+## 2026년 4월 17일 업데이트 (3차)
+
+### 🎨 PySide6 기반 GUI v2 개발
+
+#### 새로운 GUI 파일
+- **gui2.py**: PySide6 향상된 버전 (독립 실행)
+- **gui2_pyside/**: 모듈화된 구조
+  - `app.py`: 사이드바 네비게이션 + 카드 레이아웃
+  - `styles.py`: 모던 라이트 테마 스타일시트
+
+#### 디자인 샘플 (design_samples/)
+1. **sample1_sidebar_card.py** - 모던 라이트
+   - 다크 네이비 사이드바 + 흰색 카드
+   - 그래디언트 실행 버튼
+   - 대시보드 느낌
+
+2. **sample2_dark_glassmorphism.py** - 프리미엄 다크
+   - 전체 다크 테마 + 보라색 포인트
+   - 아이콘 사이드바 (64px)
+   - 럭셔리 브랜드 이미지
+
+3. **sample3_minimal_clean.py** - Apple 스타일
+   - 상단 네비게이션 바
+   - 여백 많은 미니멀 레이아웃
+   - 가장 깔끔한 디자인
+
+#### 뷰파인더 샘플 (이미지 비교 기능)
+1. **sample_viewfinder.py** - 다중탭 버전
+   - 슬라이더 비교 (상/하)
+   - 좌우 분할 비교
+   - 6단계 그리드 뷰
+   - 평가 점수 + 세부 정보 패널
+
+2. **sample_viewfinder_split.py** - 좌우분할 전문
+   - 이전 단계 ↔ 현재 단계
+   - 세로 분할선으로 명확히 구분
+   - 각 영역별 상세 정보
+   - 점수 및 액션 버튼
+
+#### 사용자 메뉴얼
+- **manual.html** - 브라우저 기반 완벽 설명서
+  - 초등학생도 이해할 수 있는 쉬운 언어
+  - 색상 코딩된 팁/주의/정보 박스
+  - 3가지 디자인 스타일 스크린샷 포함
+  - 목차 사이드바 + 검색 가능
+  - 이미지 검증 상세 가이드 ⭐
+  - 프롬프트 편집 완벽 가이드 ⭐
+
+#### 실행 구성
+- **.claude/launch.json** 추가
+  - PySide6 GUI (gui_pyside.py)
+  - tkinter GUI (gui.py)
+  - CLI (main.py)
+
+### 📊 주요 개선사항
+
+| 항목 | GUI v1 (tkinter) | GUI v2 (PySide6) |
+|------|-----------------|-----------------|
+| 네비게이션 | 탭만 사용 | 사이드바 + 탭 |
+| 시각적 품질 | 기본 | 모던 + 그래디언트 |
+| 반응성 | 제한적 | 부드러운 호버/전환 |
+| 디자인 자유도 | 낮음 | 높음 |
+| 뷰파인더 | 기본 | 이미지 비교 전문화 |
+| 문서화 | 없음 | 상세 HTML 매뉴얼 |
+
+### 🚀 실행 방법
+
+```bash
+# GUI v1 (기존)
+python gui.py
+
+# GUI v2 (새로운)
+python gui2.py
+
+# 또는 CLI
+python main.py --help
+```
+
+### 📝 다음 단계
+
+1. **GUI v2 기능 완성**
+   - 탭 구현 (프롬프트, 그림자, 설정)
+   - 뷰파인더 통합
+   - 실시간 이미지 처리
+
+2. **PySide6 전환**
+   - GUI v1 기능을 GUI v2로 이식
+   - 테스트 및 최적화
+   - GUI v2를 기본값으로 변경
+
+3. **뷰파인더 기능**
+   - 이미지 처리 단계별 시각화
+   - 좌우분할 비교 UI 통합
+   - 점수 기반 자동 평가
+
+4. **사용자 메뉴얼 개선**
+   - 실제 GUI 스크린샷으로 교체
+   - 비디오 튜토리얼 추가
+   - 다국어 지원
+

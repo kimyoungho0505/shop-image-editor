@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LUXBOY 이미지 자동편집 프로그램 - 사용 설명서</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: '맑은 고딕', 'Segoe UI', sans-serif;
+            line-height: 1.8;
+            color: #333;
+            background: #f5f5f5;
+        }
+        header {
+            background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        header p { font-size: 1.1em; opacity: 0.9; }
+
+        .container { max-width: 1200px; margin: 0 auto; display: flex; min-height: calc(100vh - 100px); }
+
+        aside {
+            width: 250px;
+            background: white;
+            padding: 20px;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+            position: sticky;
+            top: 0;
+            max-height: 100vh;
+            overflow-y: auto;
+        }
+        aside h2 { margin-bottom: 20px; color: #2563eb; font-size: 1.2em; }
+        aside ul { list-style: none; }
+        aside li { margin-bottom: 8px; }
+        aside a {
+            display: block;
+            padding: 10px 15px;
+            color: #333;
+            text-decoration: none;
+            border-radius: 6px;
+            transition: all 0.3s;
+            font-size: 0.95em;
+        }
+        aside a:hover {
+            background: #e0e7ff;
+            color: #2563eb;
+            padding-left: 20px;
+        }
+
+        main {
+            flex: 1;
+            padding: 40px;
+            background: white;
+            margin: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        section { margin-bottom: 50px; scroll-margin-top: 20px; }
+        section h2 {
+            font-size: 2em;
+            color: #2563eb;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #2563eb;
+        }
+        section h3 {
+            font-size: 1.3em;
+            color: #1e293b;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+
+        .tip, .warning, .info {
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border-left: 4px solid;
+        }
+        .tip { background: #d1fae5; border-color: #10b981; }
+        .tip::before { content: "💡 팁: "; font-weight: bold; }
+
+        .warning { background: #fee2e2; border-color: #ef4444; }
+        .warning::before { content: "⚠️ 주의: "; font-weight: bold; }
+
+        .info { background: #dbeafe; border-color: #3b82f6; }
+        .info::before { content: "ℹ️ 정보: "; font-weight: bold; }
+
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            margin: 20px 0;
+            border: 1px solid #e5e7eb;
+        }
+
+        .step {
+            background: #f9fafb;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 6px;
+            border-left: 4px solid #2563eb;
+        }
+        .step-num {
+            display: inline-block;
+            background: #2563eb;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th { background: #2563eb; color: white; padding: 12px; text-align: left; }
+        td { padding: 12px; border-bottom: 1px solid #e5e7eb; }
+        tr:hover { background: #f9fafb; }
+
+        .button-example {
+            display: inline-block;
+            padding: 8px 16px;
+            background: #2563eb;
+            color: white;
+            border-radius: 6px;
+            margin: 0 3px;
+            font-size: 0.9em;
+        }
+
+        footer {
+            background: #1f2937;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .container { flex-direction: column; }
+            aside { width: 100%; position: relative; max-height: none; }
+            main { margin: 10px; padding: 20px; }
+            header h1 { font-size: 1.8em; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🎨 LUXBOY 이미지 자동편집 프로그램</h1>
+        <p>제품 사진을 AI가 자동으로 예쁘게 만들어주는 프로그램</p>
+    </header>
+
+    <div class="container">
+        <aside>
+            <h2>📋 목차</h2>
+            <ul>
+                <li><a href="#intro">1. 프로그램 소개</a></li>
+                <li><a href="#start">2. 시작하기</a></li>
+                <li><a href="#main">3. 메인 화면 설명</a></li>
+                <li><a href="#basic">4. 기본 사용법</a></li>
+                <li><a href="#validation">5. 이미지 검증 상세 가이드</a></li>
+                <li><a href="#prompt">6. 프롬프트 편집 완벽 가이드</a></li>
+                <li><a href="#settings">7. 설정</a></li>
+                <li><a href="#faq">8. 자주 묻는 질문</a></li>
+            </ul>
+        </aside>
+
+        <main>
+            <!-- 1. 소개 -->
+            <section id="intro">
+                <h2>1️⃣ 프로그램 소개</h2>
+
+                <h3>이 프로그램이 하는 일</h3>
+                <p>
+                    이 프로그램은 쇼핑몰에서 팔 물건의 사진을 자동으로 예쁘게 만들어줍니다.
+                </p>
+                <p>
+                    마치 전문 사진작가처럼:
+                </p>
+                <ul style="margin-left: 20px;">
+                    <li>📷 배경을 깨끗하게 제거</li>
+                    <li>🌑 그림자를 자연스럽게 추가</li>
+                    <li>✨ 밝기와 색상을 조정</li>
+                    <li>🎯 물건을 정확한 중앙에 배치</li>
+                    <li>💾 최종 이미지를 저장</li>
+                </ul>
+
+                <div class="info">
+                    이 프로그램은 AI(인공지능)를 사용해서 작업합니다. 마치 똑똑한 비서처럼
+                    사진을 분석하고 개선해줍니다!
+                </div>
+            </section>
+
+            <!-- 2. 시작하기 -->
+            <section id="start">
+                <h2>2️⃣ 시작하기</h2>
+
+                <h3>프로그램 실행하기</h3>
+                <div class="step">
+                    <span class="step-num">1</span>
+                    <strong>Windows 시작 메뉴</strong>에서 "명령 프롬프트" 또는 "PowerShell" 열기
+                </div>
+                <div class="step">
+                    <span class="step-num">2</span>
+                    <code>cd D:/CLAUDE_CODE_WORK/shop-image-editor</code> 입력 후 Enter
+                </div>
+                <div class="step">
+                    <span class="step-num">3</span>
+                    <code>python gui.py</code> 입력 후 Enter
+                </div>
+                <div class="step">
+                    <span class="step-num">4</span>
+                    조금 기다리면 프로그램 창이 열립니다 ✨
+                </div>
+            </section>
+
+            <!-- 3. 메인 화면 -->
+            <section id="main">
+                <h2>3️⃣ 메인 화면 설명</h2>
+
+                <h3>화면 구성</h3>
+                <p>프로그램을 실행하면 여러 개의 탭(버튼)이 보입니다:</p>
+
+                <table>
+                    <tr>
+                        <th>탭 이름</th>
+                        <th>무엇을 하나요?</th>
+                    </tr>
+                    <tr>
+                        <td><strong>실행</strong></td>
+                        <td>사진을 선택하고 처리를 시작하는 곳</td>
+                    </tr>
+                    <tr>
+                        <td><strong>프롬프트 편집</strong></td>
+                        <td>AI에게 주는 명령을 바꾸는 곳</td>
+                    </tr>
+                    <tr>
+                        <td><strong>그림자 힌트</strong></td>
+                        <td>각 물건 종류별로 어떻게 그림자를 그을지 알려주는 곳</td>
+                    </tr>
+                    <tr>
+                        <td><strong>설정</strong></td>
+                        <td>API 키나 결과물 크기 같은 옵션을 바꾸는 곳</td>
+                    </tr>
+                </table>
+
+                <h3>📸 다양한 디자인 스타일</h3>
+                <p>프로그램은 3가지 디자인 스타일을 지원합니다:</p>
+
+                <h4>1️⃣ 모던 라이트 스타일 (사용하기 쉬움)</h4>
+                <p>파란 사이드바와 깔끔한 카드 레이아웃입니다.</p>
+                <img src="sample1_result.png" alt="모던 라이트 스타일" style="max-width: 600px;">
+
+                <h4>2️⃣ 다크 글래스모피즘 스타일 (고급스러움)</h4>
+                <p>어두운 배경에 보라색 포인트로 럭셔리한 느낌입니다.</p>
+                <img src="sample2_result.png" alt="다크 글래스모피즘" style="max-width: 600px;">
+
+                <h4>3️⃣ 미니멀 클린 스타일 (Apple 스타일)</h4>
+                <p>맨 위의 네비게이션 바와 여백이 많은 깔끔한 디자인입니다.</p>
+                <img src="sample3_result.png" alt="미니멀 클린" style="max-width: 600px;">
+            </section>
+
+            <!-- 4. 기본 사용법 -->
+            <section id="basic">
+                <h2>4️⃣ 기본 사용법</h2>
+
+                <h3>Step 1: 이미지 파일 선택하기</h3>
+                <div class="step">
+                    <span class="step-num">1</span>
+                    "실행" 탭에서 <strong>입력</strong> 부분의 "폴더 선택" 버튼 클릭
+                </div>
+                <div class="step">
+                    <span class="step-num">2</span>
+                    편집할 사진이 있는 폴더를 선택
+                </div>
+                <div class="step">
+                    <span class="step-num">3</span>
+                    "확인" 버튼 클릭
+                </div>
+
+                <h3>Step 2: 결과물이 저장될 위치 정하기</h3>
+                <div class="step">
+                    <span class="step-num">1</span>
+                    <strong>출력</strong> 부분의 "폴더 선택" 버튼 클릭
+                </div>
+                <div class="step">
+                    <span class="step-num">2</span>
+                    완성된 사진을 저장할 위치 선택
+                </div>
+                <div class="step">
+                    <span class="step-num">3</span>
+                    "확인" 버튼 클릭
+                </div>
+
+                <h3>Step 3: 처리 시작하기</h3>
+                <div class="step">
+                    <span class="step-num">1</span>
+                    필요한 설정을 한 후 <span class="button-example">▶ 실행</span> 버튼 클릭
+                </div>
+                <div class="step">
+                    <span class="step-num">2</span>
+                    프로그램이 사진을 처리합니다 (시간이 좀 걸릴 수 있습니다)
+                </div>
+                <div class="step">
+                    <span class="step-num">3</span>
+                    완료되면 결과물이 출력 폴더에 저장됩니다 ✅
+                </div>
+
+                <div class="tip">
+                    여러 개의 사진을 한 번에 처리하려면 입력 폴더에 모든 사진을 넣으면 됩니다!
+                </div>
+            </section>
+
+            <!-- 5. 이미지 검증 -->
+            <section id="validation">
+                <h2>5️⃣ 이미지 검증 상세 가이드</h2>
+
+                <p>
+                    <strong>"이미지 검증"</strong>이란 AI가 처리한 사진이 잘 만들어졌는지
+                    확인하고 필요하면 다시 처리하는 것입니다.
+                </p>
+
+                <h3>🔍 검증이란?</h3>
+                <p>
+                    프로그램이 다음을 자동으로 확인합니다:
+                </p>
+                <ul style="margin-left: 20px;">
+                    <li>✅ 배경이 제대로 제거되었나?</li>
+                    <li>✅ 그림자가 자연스럽나?</li>
+                    <li>✅ 물건이 정중앙에 있나?</li>
+                    <li>✅ 밝기가 적당한가?</li>
+                </ul>
+
+                <h3>📊 점수 이해하기</h3>
+                <table>
+                    <tr>
+                        <th>점수</th>
+                        <th>의미</th>
+                        <th>어떻게 하나요?</th>
+                    </tr>
+                    <tr>
+                        <td>90점 이상 🟢</td>
+                        <td>완벽합니다!</td>
+                        <td>그냥 사용해도 됩니다</td>
+                    </tr>
+                    <tr>
+                        <td>70~90점 🟡</td>
+                        <td>괜찮지만 개선 가능</td>
+                        <td>자동 수정을 시도하거나 수동으로 조정</td>
+                    </tr>
+                    <tr>
+                        <td>70점 미만 🔴</td>
+                        <td>문제가 있어요</td>
+                        <td>반드시 다시 처리해야 합니다</td>
+                    </tr>
+                </table>
+
+                <h3>🔧 자동 수정하기</h3>
+                <p>
+                    점수가 낮으면 프로그램이 자동으로 다시 처리할 수 있습니다.
+                    마치 의사의 2차 진료처럼, AI들이 함께 모여 어떻게 개선할지 의논합니다.
+                </p>
+
+                <div class="step">
+                    <span class="step-num">1</span>
+                    점수가 낮은 사진을 선택
+                </div>
+                <div class="step">
+                    <span class="step-num">2</span>
+                    <span class="button-example">자동 수정</span> 버튼 클릭
+                </div>
+                <div class="step">
+                    <span class="step-num">3</span>
+                    "6단계 회의" 윈도우가 열립니다
+                </div>
+                <div class="step">
+                    <span class="step-num">4</span>
+                    AI들이 대화하는 것을 지켜봅니다 (2~3분 소요)
+                </div>
+                <div class="step">
+                    <span class="step-num">5</span>
+                    완료되면 새로운 점수가 표시됩니다
+                </div>
+
+                <div class="info">
+                    6단계 회의란?<br/>
+                    • 1단계: 각 AI가 의견 제시<br/>
+                    • 2단계: 서로 의견 검토<br/>
+                    • 3단계: 공통 문제 파악<br/>
+                    • 4단계: 해결방법 제시<br/>
+                    • 5단계: 방법 토론<br/>
+                    • 6단계: 최종 결정<br/>
+                    마치 회의실에서 여러 사람이 의논하는 것처럼!
+                </div>
+
+                <h3>💬 회의 중에 의견 주기</h3>
+                <p>
+                    회의 창의 맨 아래에 입력창이 있습니다.
+                    여기에 메시지를 입력하면 AI들이 당신의 의견을 반영합니다!
+                </p>
+
+                <div class="step">
+                    <span class="step-num">1</span>
+                    입력창에 당신의 생각을 입력 (예: "배경을 더 밝게 해주세요")
+                </div>
+                <div class="step">
+                    <span class="step-num">2</span>
+                    Enter 키 또는 "전송" 버튼 클릭
+                </div>
+                <div class="step">
+                    <span class="step-num">3</span>
+                    AI들이 당신의 의견을 읽고 반영합니다
+                </div>
+
+                <div class="tip">
+                    구체적으로 말할수록 좋습니다!<br/>
+                    "더 밝게" 보다는 "명도를 50 더 올려주세요"처럼 말하면 더 정확해요!
+                </div>
+            </section>
+
+            <!-- 6. 프롬프트 편집 -->
+            <section id="prompt">
+                <h2>6️⃣ 프롬프트 편집 완벽 가이드</h2>
+
+                <h3>🎯 프롬프트란?</h3>
+                <p>
+                    <strong>"프롬프트"</strong>는 AI에게 주는 <strong>명령</strong>입니다.
+                    마치 요리사에게 "맛있는 국을 만들어주세요"라고 말하듯이,
+                    프로그램에서 "이 사진을 이렇게 처리해주세요"라고 AI에게 말하는 것입니다.
+                </p>
+
+                <h3>📝 프롬프트 종류</h3>
+                <table>
+                    <tr>
+                        <th>프롬프트</th>
+                        <th>언제 사용하나요?</th>
+                    </tr>
+                    <tr>
+                        <td><strong>시스템 프롬프트</strong></td>
+                        <td>AI의 기본 역할을 정해요 (예: "전문 사진작가처럼")</td>
+                    </tr>
+                    <tr>
+                        <td><strong>분석 요청</strong></td>
+                        <td>사진을 어떻게 분석할지 말해줘요</td>
+                    </tr>
+                    <tr>
+                        <td><strong>검증 프롬프트</strong></td>
+                        <td>처리된 사진이 좋은지 평가하는 방법을 알려줘요</td>
+                    </tr>
+                </table>
+
+                <h3>✏️ 프롬프트 편집하는 방법</h3>
+
+                <div class="step">
+                    <span class="step-num">1</span>
+                    <strong>"프롬프트 편집"</strong> 탭 클릭
+                </div>
+                <div class="step">
+                    <span class="step-num">2</span>
+                    수정하고 싶은 프롬프트 찾기
+                </div>
+                <div class="step">
+                    <span class="step-num">3</span>
+                    텍스트 박스에서 원하는 부분 수정
+                </div>
+                <div class="step">
+                    <span class="step-num">4</span>
+                    <span class="button-example">저장</span> 버튼 클릭
+                </div>
+                <div class="step">
+                    <span class="step-num">5</span>
+                    <span class="button-example">기본값 복원</span>을 누르면 원래대로 돌아갑니다
+                </div>
+
+                <h3>📚 좋은 프롬프트 작성 팁</h3>
+
+                <div class="tip">
+                    <strong>구체적으로 써야 해요!</strong><br/>
+                    ❌ "예쁘게 해줘"<br/>
+                    ✅ "명도를 높이고, 배경을 완전히 제거하고, 물건을 중앙에 배치해줘"
+                </div>
+
+                <div class="tip">
+                    <strong>단순명료하게 써야 해요!</strong><br/>
+                    ❌ "음... 이 사진이 좀 어둡고 배경이 지저분한데 어떻게 할까요?"<br/>
+                    ✅ "배경을 제거하고 밝기를 증가시켜주세요"
+                </div>
+
+                <div class="tip">
+                    <strong>명확한 동작을 명령해야 해요!</strong><br/>
+                    ❌ "좀 더..."<br/>
+                    ✅ "명도를 30 증가, 채도를 20 증가, 대비를 15 증가"
+                </div>
+
+                <h3>🔄 프롬프트 예시</h3>
+
+                <h4>신발 처리</h4>
+                <div style="background: #f0f0f0; padding: 15px; border-radius: 6px; margin: 10px 0;">
+                    <p>
+                        "럭셔리 브랜드 신발의 전문 상품사진을 만들어주세요.<br/>
+                        1. 배경을 완전히 투명하게 제거<br/>
+                        2. 신발 아래에 자연스러운 그림자 추가<br/>
+                        3. 신발을 정중앙에 배치<br/>
+                        4. 밝기를 유지하고 색상을 선명하게<br/>
+                        5. 신발의 디테일이 모두 보이게"
+                    </p>
+                </div>
+
+                <h4>가방 처리</h4>
+                <div style="background: #f0f0f0; padding: 15px; border-radius: 6px; margin: 10px 0;">
+                    <p>
+                        "고급 가방의 제품사진을 만들어주세요.<br/>
+                        1. 배경을 깨끗하게 제거<br/>
+                        2. 가방의 질감이 잘 보이도록 조명 조정<br/>
+                        3. 가방을 살짝 45도 각도로 배치<br/>
+                        4. 그림자를 우아하게 표현<br/>
+                        5. 색감을 따뜻하고 고급스럽게"
+                    </p>
+                </div>
+
+                <h3>🔍 프롬프트 테스트하기</h3>
+                <p>
+                    프롬프트를 수정한 후에는 한두 개의 사진으로 테스트해보는 것이 좋습니다.
+                </p>
+                <div class="step">
+                    <span class="step-num">1</span>
+                    새 프롬프트로 한 장의 사진 처리
+                </div>
+                <div class="step">
+                    <span class="step-num">2</span>
+                    결과가 좋으면 여러 장을 처리
+                </div>
+                <div class="step">
+                    <span class="step-num">3</span>
+                    결과가 나쁘면 프롬프트를 수정하고 다시 시도
+                </div>
+
+                <div class="warning">
+                    기본값 복원을 누르면 모든 편집이 사라집니다.
+                    주의해서 사용하세요!
+                </div>
+            </section>
+
+            <!-- 7. 설정 -->
+            <section id="settings">
+                <h2>7️⃣ 설정</h2>
+
+                <h3>API 키 관리</h3>
+                <p>
+                    API 키는 AI 서비스를 사용하기 위한 비밀번호같은 것입니다.
+                </p>
+                <div class="step">
+                    <span class="step-num">1</span>
+                    "설정" 탭 클릭
+                </div>
+                <div class="step">
+                    <span class="step-num">2</span>
+                    각 AI 서비스의 키 입력 (Claude, ChatGPT, Gemini 등)
+                </div>
+                <div class="step">
+                    <span class="step-num">3</span>
+                    <span class="button-example">저장</span> 버튼 클릭
+                </div>
+
+                <div class="warning">
+                    API 키는 절대로 다른 사람에게 알려주면 안 됩니다!
+                    마치 은행 비밀번호처럼 안전하게 관리하세요.
+                </div>
+
+                <h3>모델 선택</h3>
+                <p>
+                    AI 모델을 선택할 수 있습니다:
+                </p>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Claude:</strong> Anthropic의 강력한 AI</li>
+                    <li><strong>ChatGPT:</strong> OpenAI의 유명한 AI</li>
+                    <li><strong>Gemini:</strong> Google의 빠른 AI</li>
+                </ul>
+
+                <h3>출력 이미지 설정</h3>
+                <table>
+                    <tr>
+                        <th>설정</th>
+                        <th>의미</th>
+                        <th>권장값</th>
+                    </tr>
+                    <tr>
+                        <td>가로 (px)</td>
+                        <td>결과 이미지의 가로 크기</td>
+                        <td>1000</td>
+                    </tr>
+                    <tr>
+                        <td>세로 (px)</td>
+                        <td>결과 이미지의 세로 크기</td>
+                        <td>1000</td>
+                    </tr>
+                    <tr>
+                        <td>JPEG 품질</td>
+                        <td>이미지의 선명함 (0~100)</td>
+                        <td>95</td>
+                    </tr>
+                </table>
+            </section>
+
+            <!-- 8. FAQ -->
+            <section id="faq">
+                <h2>8️⃣ 자주 묻는 질문 (FAQ)</h2>
+
+                <h3>Q1: 프로그램이 느린데요?</h3>
+                <p>
+                    <strong>A:</strong> AI가 열심히 일하고 있는 거예요.
+                    한 장당 1~5분 정도 걸리는 것이 정상입니다.
+                    GPU가 있으면 더 빨라집니다!
+                </p>
+
+                <h3>Q2: 배경 제거가 잘 안 돼요</h3>
+                <p>
+                    <strong>A:</strong> 다음을 시도해보세요:<br/>
+                    • 프롬프트에서 배경 제거 관련 부분을 더 자세하게 작성<br/>
+                    • 자동 수정 기능 사용<br/>
+                    • 다른 배경 제거 서비스 시도 (Photoroom → remove.bg)
+                </p>
+
+                <h3>Q3: 그림자가 부자연스러워요</h3>
+                <p>
+                    <strong>A:</strong> 그림자 힌트를 추가해보세요:<br/>
+                    • "그림자 힌트" 탭에서 물건 종류별로 그림자 가이드 작성<br/>
+                    • 프롬프트에서 그림자 처리 방식 구체적으로 명시
+                </p>
+
+                <h3>Q4: 결과가 마음에 안 들어요</h3>
+                <p>
+                    <strong>A:</strong> 자동 수정을 시도하세요!<br/>
+                    • 사진 선택 후 "자동 수정" 클릭<br/>
+                    • 6단계 회의 중에 당신의 의견 입력<br/>
+                    • AI들이 피드백을 반영해서 개선합니다
+                </p>
+
+                <h3>Q5: API 키를 어디서 얻나요?</h3>
+                <p>
+                    <strong>A:</strong> 각 AI 서비스의 웹사이트에서:<br/>
+                    • Claude: anthropic.com<br/>
+                    • ChatGPT: openai.com<br/>
+                    • Gemini: google.com/ai
+                </p>
+
+                <h3>Q6: 한 번에 몇 개의 사진을 처리할 수 있나요?</h3>
+                <p>
+                    <strong>A:</strong> 입력 폴더에 있는 모든 사진을 한 번에 처리할 수 있습니다!
+                    자동으로 하나씩 처리합니다.
+                </p>
+
+                <div class="tip">
+                    더 많은 도움이 필요하면 프로그램 폴더의
+                    "history.md" 파일을 읽어보세요!
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <footer>
+        <p>🎨 LUXBOY 이미지 자동편집 프로그램 - 사용 설명서</p>
+        <p>마지막 업데이트: 2026년 4월 | 문의: support@luxboy.com</p>
+    </footer>
+</body>
+</html>
