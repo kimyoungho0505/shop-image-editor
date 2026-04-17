@@ -2294,7 +2294,7 @@ class App(tk.Tk):
                           else (current if current and Path(current).is_dir() else "")
             filepaths = filedialog.askopenfilenames(
                 title="처리할 이미지 파일 선택 (여러 장 가능)",
-                filetypes=filetypes, initialdir=initial_dir or None)
+                filetypes=filetypes, initialdir=initial_dir or None, parent=self)
             if not filepaths:
                 return
             file_list = list(filepaths)
@@ -3845,7 +3845,7 @@ class App(tk.Tk):
 
     # ── 폴더 ──
     def _browse_input(self):
-        folder = filedialog.askdirectory(title="입력 이미지 폴더 선택")
+        folder = filedialog.askdirectory(title="입력 이미지 폴더 선택", parent=self)
         if folder:
             self.var_input.set(folder)
 
@@ -3864,7 +3864,7 @@ class App(tk.Tk):
             messagebox.showwarning("알림", "입력 경로가 존재하지 않습니다.")
 
     def _browse_output(self):
-        folder = filedialog.askdirectory(title="출력 폴더 선택")
+        folder = filedialog.askdirectory(title="출력 폴더 선택", parent=self)
         if folder:
             self.var_output.set(folder)
 
@@ -3877,7 +3877,7 @@ class App(tk.Tk):
 
     # ── 임시 옵션 탭 입출력 폴더 ──
     def _browse_unified_input(self):
-        folder = filedialog.askdirectory(title="입력 이미지 폴더 선택")
+        folder = filedialog.askdirectory(title="입력 이미지 폴더 선택", parent=self)
         if folder:
             self.var_unified_input.set(folder)
             out = Path(folder) / "OUTPUT"
@@ -3898,7 +3898,7 @@ class App(tk.Tk):
             messagebox.showwarning("알림", "입력 경로가 존재하지 않습니다.")
 
     def _browse_unified_output(self):
-        folder = filedialog.askdirectory(title="출력 폴더 선택")
+        folder = filedialog.askdirectory(title="출력 폴더 선택", parent=self)
         if folder:
             self.var_unified_output.set(folder)
 
@@ -3979,7 +3979,7 @@ class App(tk.Tk):
         filepaths = filedialog.askopenfilenames(
             title="처리할 이미지 파일 선택 (여러 장 가능)",
             filetypes=filetypes,
-            initialdir=initial_dir or None)
+            initialdir=initial_dir or None, parent=self)
         if filepaths:
             self.var_input.set(filepaths[0])
             self._selected_files = list(filepaths)
