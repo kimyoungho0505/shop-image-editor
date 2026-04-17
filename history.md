@@ -358,3 +358,71 @@ python main.py --help
    - 비디오 튜토리얼 추가
    - 다국어 지원
 
+---
+
+## 2026년 4월 17일 업데이트 (4차)
+
+### 🗂️ 임시 옵션 탭 입출력 폴더 UI 추가
+
+- `_build_temp_options_tab()`: 실행 탭과 동일한 입력/출력 폴더 선택 UI 추가
+  - `var_unified_input` / `var_unified_output` StringVar (Entry + "..." 탐색 + "열기" 버튼)
+  - 출력 폴더 기본값: `{입력폴더}/OUTPUT` (없으면 자동 생성)
+- `_browse_unified_input()`: 입력 폴더 선택 시 출력 폴더를 `{선택폴더}/OUTPUT`으로 자동 지정 + 디렉터리 생성
+- `_run_unified_photoroom()`: `var_unified_input` / `var_unified_output` 사용, 출력 폴더 없으면 자동 생성
+
+### 💳 Photoroom 크레딧 확인 기능
+
+- 설정 탭 API 키 입력 행(Photoroom 행) 옆에 "크레딧 확인" 버튼 + `lbl_photoroom_credits` 라벨 추가
+- `_check_photoroom_credits()`: 백그라운드 스레드에서 `GET https://image-api.photoroom.com/v1/account` 호출
+  - 응답: `{"credits":{"available":N,"subscription":M}}`
+  - 성공 시: "남은 크레딧: N / M (사용: Z)" 초록색 표시
+  - 실패 시: 빨간색 오류 메시지 표시
+
+### 🔍 뷰파인더 라우팅 분류 결과 표시
+
+- 뷰파인더 각 행에 라우팅 결과 텍스트 추가
+  - `full_shadow` → "전체컷" (파란색)
+  - `detail_bg_only` → "디테일(흰배경)" (주황색)
+  - `claid_only` → "배경없는 디테일" (초록색)
+  - 완료 상태: "성공" (초록) / "실패" (빨간)
+- `routing_info`를 `_viewfinder_pairs`와 `_vf_file_stages` **양쪽** 모두에 저장하도록 수정
+  - `_update_row_stages()`는 `_vf_file_stages`를 읽으므로 두 곳 모두 필요
+
+### 🤖 Gemini 모델 업데이트
+
+- `config/settings.yaml`: `gemini.model` `gemini-2.0-flash` → `gemini-2.5-flash` (구 모델 404 오류)
+- GUI 콤보박스 목록에서 `gemini-2.0-flash` 제거, `gemini-2.5-flash-lite` 추가
+
+### 🐛 버그 수정
+
+#### result_parser.py — JSON 배열 응답 처리
+- Gemini API가 `[{...}]` 배열 형태로 응답할 때 `_to_instruction()`에서 `.get()` 호출 → `AttributeError` 발생
+- `_extract_json()`: `json.loads()` 결과가 list이면 첫 번째 dict 항목 반환하도록 수정
+
+#### photoroom/client.py — background.color 파라미터 누락
+- `_build_params()`: 그림자 모드 없을 때 `background.color` 설정이 무시되어 `export.format=jpg` + 투명 배경 충돌 → 400 오류
+- `elif bg_color:` 분기 추가로 그림자 없는 경우에도 배경색 적용
+
+#### pipeline.py — Vision 분류 실패 traceback 로깅
+- Vision 분류 실패 시 예외 메시지만 출력되고 traceback 누락 → 원인 파악 어려움
+- `except Exception as ve:` 블록에 `import traceback; _log(traceback.format_exc(), "warn")` 추가
+
+### 🛡️ 디테일컷 누끼 품질 검증 (OpenCV flood fill)
+
+배경 있는 디테일컷에서 Photoroom 누끼 결과 내부에 흰색 구멍이 생기는 문제 대응
+
+#### 검증 로직 (`_check_detail_nukki_quality()`)
+1. 결과 PNG에서 흰색 픽셀 마스크 생성 (R/G/B > 240)
+2. 이미지 테두리에 1px 흰색 패딩 추가
+3. 좌상단 (0,0)에서 flood fill → 외부 연결 흰색 픽셀을 128로 마킹
+4. 패딩 제거 후 255로 남은 픽셀 = 외부에서 도달 불가 내부 구멍
+5. 내부 구멍 면적 비율 > 0.05% 이면 품질 불량 판정
+
+#### 롤백 처리
+- 누끼 품질 불량 판정 시: 원본 이미지(`image_bytes`)로 대체 후 Claid 처리 진행
+- 품질 양호 시: 정상적으로 Photoroom 결과로 Claid 처리
+
+#### ConnectedComponents 방식 실패 이유
+- 내부 구멍이 이미지 테두리의 흰 배경과 연결된 경우 "테두리 접촉" 판정 → 누락
+- Flood fill 방식은 이런 경우에도 정확히 탐지 가능
+

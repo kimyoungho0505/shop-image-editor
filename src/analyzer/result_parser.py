@@ -67,7 +67,14 @@ class ResultParser:
         """텍스트에서 JSON 객체를 추출한다."""
         # 방법 1: 전체를 JSON으로 파싱 시도
         try:
-            return json.loads(text.strip())
+            result = json.loads(text.strip())
+            if isinstance(result, dict):
+                return result
+            if isinstance(result, list):
+                # Gemini 등이 배열로 응답하는 경우 첫 번째 dict 사용
+                for item in result:
+                    if isinstance(item, dict):
+                        return item
         except json.JSONDecodeError:
             pass
 

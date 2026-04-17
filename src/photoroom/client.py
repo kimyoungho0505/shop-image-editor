@@ -70,16 +70,20 @@ class PhotoroomClient:
             "export.format": config.get("export.format", "png"),
         }
 
+        # 배경색 (config에 있으면 적용)
+        bg_color = config.get("background.color")
+
         # 그림자 모드 (설정에 있으면 적용)
         shadow_mode = config.get("shadow.mode")
         if shadow_mode:
             params["shadow.mode"] = str(shadow_mode)
-            # 그림자가 있으면 흰 배경으로 합성 → alpha 후처리 불필요
-            params["background.color"] = "FFFFFF"
-            # 그림자 강도 (설정에 있으면 적용)
+            params["background.color"] = bg_color or "FFFFFF"
             shadow_opacity = config.get("shadow.opacity")
             if shadow_opacity is not None:
                 params["shadow.opacity"] = str(shadow_opacity)
+        elif bg_color:
+            # 그림자 없이 배경색 지정 (jpg 포맷일 때 transparent 충돌 방지)
+            params["background.color"] = bg_color
 
         return params
 

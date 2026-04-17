@@ -599,6 +599,10 @@ class App(tk.Tk):
         self.notebook.add(self.tab_settings, text="  설정  ")
         self._build_settings_tab()
 
+        self.tab_temp_options = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_temp_options, text="  임시 옵션  ")
+        self._build_temp_options_tab()
+
         self.status_bar = ttk.Label(self, text="준비 완료", relief="sunken", anchor="w",
                                     font=(FONT_FAMILY, 9))
         self.status_bar.pack(fill="x", padx=10, pady=(5, 10))
@@ -1369,6 +1373,13 @@ class App(tk.Tk):
                             command=getattr(self, toggle_cmd)).grid(row=r, column=2, padx=4)
             ttk.Button(api_lf, text="저장", width=4,
                        command=getattr(self, save_cmd)).grid(row=r, column=3, padx=(2, 0), pady=3)
+            if env_key == "PHOTOROOM_API_KEY":
+                self.lbl_photoroom_credits = ttk.Label(
+                    api_lf, text="", style="Card.TLabel", font=(FONT_FAMILY, 9))
+                self.lbl_photoroom_credits.grid(row=r, column=5, padx=(4, 0), pady=3, sticky="w")
+                ttk.Button(api_lf, text="크레딧 확인", width=9,
+                           command=self._check_photoroom_credits).grid(
+                    row=r, column=4, padx=(4, 0), pady=3)
 
         api_lf.columnconfigure(1, weight=1)
 
@@ -1394,7 +1405,7 @@ class App(tk.Tk):
                   font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 4))
         self.var_gemini_model = tk.StringVar(value="gemini-2.5-flash")
         ttk.Combobox(model_f, textvariable=self.var_gemini_model, width=18,
-            values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+            values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"],
             font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 12))
 
         ttk.Label(model_f, text="Grok:", style="Card.TLabel",
@@ -2121,6 +2132,296 @@ class App(tk.Tk):
                    command=self._load_categories).pack(side="left", ipady=2)
         self.cat_status = ttk.Label(cat_btn, text="", style="TLabel")
         self.cat_status.pack(side="left", padx=15)
+
+    # ── 임시 옵션 탭 ──
+    def _build_temp_options_tab(self):
+        parent = self.tab_temp_options
+
+        info_f = tk.LabelFrame(parent, text=" ℹ 안내 ", font=(FONT_FAMILY, 9, "bold"),
+                               bg=CARD_BG, fg="#555", padx=10, pady=6)
+        info_f.pack(fill="x", padx=12, pady=(10, 6))
+        tk.Label(info_f, text=(
+            "이 탭은 테스트용 임시 옵션입니다.\n"
+            "포토룸 배경+그림자 통합방식: 배경 제거와 AI 그림자를 하나의 API 호출로 처리 후 Claid 보정만 수행합니다."
+        ), bg=CARD_BG, fg="#444", font=(FONT_FAMILY, 9), justify="left").pack(anchor="w")
+
+        # ── 입력/출력 폴더 ──
+        folder_card = tk.LabelFrame(parent, text=" 폴더 ", font=(FONT_FAMILY, 9, "bold"),
+                                    bg=CARD_BG, fg="#555", padx=10, pady=6)
+        folder_card.pack(fill="x", padx=12, pady=(0, 6))
+        folder_card.columnconfigure(1, weight=1)
+
+        _init_input = self._state.get("input_folder", "")
+        _init_output = (str(Path(_init_input) / "OUTPUT") if _init_input
+                        else self._state.get("output_folder", str(APP_DIR / "output")))
+        self.var_unified_input = tk.StringVar(value=_init_input)
+        self.var_unified_output = tk.StringVar(value=_init_output)
+
+        for r, (lbl, var, browse_cmd, open_cmd) in enumerate([
+            ("입력", self.var_unified_input,
+             self._browse_unified_input, self._open_unified_input_folder),
+            ("출력", self.var_unified_output,
+             self._browse_unified_output, self._open_unified_output_folder),
+        ]):
+            ttk.Label(folder_card, text=lbl, style="Card.TLabel",
+                      font=(FONT_FAMILY, 10, "bold"), width=4).grid(
+                row=r, column=0, sticky="w", padx=(12, 4), pady=6)
+            e = ttk.Entry(folder_card, textvariable=var, font=(FONT_FAMILY, 10))
+            e.grid(row=r, column=1, sticky="ew", padx=0, pady=6)
+            bf = ttk.Frame(folder_card, style="Card.TFrame")
+            bf.grid(row=r, column=2, padx=(4, 8), pady=6)
+            ttk.Button(bf, text="...", width=3, command=browse_cmd).pack(side="left", padx=(0, 2))
+            ttk.Button(bf, text="열기", width=4, command=open_cmd).pack(side="left")
+
+        # ── 포토룸 배경+그림자 통합방식 ──
+        opt_frame = tk.LabelFrame(parent, text=" 포토룸 배경+그림자 통합방식 ",
+                                  font=(FONT_FAMILY, 9, "bold"),
+                                  bg=CARD_BG, fg="#1a6bb0", padx=10, pady=8)
+        opt_frame.pack(fill="x", padx=12, pady=(0, 8))
+
+        # Vision 프로바이더
+        vision_row = ttk.Frame(opt_frame, style="Card.TFrame")
+        vision_row.pack(fill="x", pady=(0, 6))
+        ttk.Label(vision_row, text="Vision 분류", style="Card.TLabel",
+                  font=(FONT_FAMILY, 9, "bold")).pack(side="left", padx=(0, 12))
+        self.var_unified_vision = tk.StringVar(
+            value=self._state.get("vision_provider", "gemini"))
+        for txt, val in [("Claude", "claude"), ("ChatGPT", "chatgpt"),
+                          ("Gemini", "gemini"), ("Grok", "grok")]:
+            ttk.Radiobutton(vision_row, text=txt,
+                            variable=self.var_unified_vision,
+                            value=val).pack(side="left", padx=4)
+        ttk.Label(vision_row, text="  ※ full→그림자/detail+흰배경→배경만/detail+유색배경→Claid만",
+                  style="Card.TLabel", font=(FONT_FAMILY, 8),
+                  foreground="#888").pack(side="left", padx=(8, 0))
+
+        # 그림자 모드 (full shot 적용)
+        shadow_row = ttk.Frame(opt_frame, style="Card.TFrame")
+        shadow_row.pack(fill="x", pady=(0, 6))
+        ttk.Label(shadow_row, text="그림자 모드", style="Card.TLabel",
+                  font=(FONT_FAMILY, 9, "bold")).pack(side="left", padx=(0, 12))
+        self.var_unified_shadow_mode = tk.StringVar(value="ai.soft")
+        for txt, val in [("ai.soft (자연스러운)", "ai.soft"),
+                          ("ai.hard (선명한)", "ai.hard"),
+                          ("ai.floating (부유효과)", "ai.floating")]:
+            ttk.Radiobutton(shadow_row, text=txt,
+                            variable=self.var_unified_shadow_mode,
+                            value=val).pack(side="left", padx=4)
+
+        # 그림자 강도 + 배경색
+        detail_row = ttk.Frame(opt_frame, style="Card.TFrame")
+        detail_row.pack(fill="x", pady=(0, 6))
+        ttk.Label(detail_row, text="그림자 강도", style="Card.TLabel",
+                  font=(FONT_FAMILY, 9, "bold")).pack(side="left", padx=(0, 6))
+        self.var_unified_opacity = tk.IntVar(value=20)
+        ttk.Spinbox(detail_row, from_=10, to=100, increment=5,
+                    textvariable=self.var_unified_opacity,
+                    width=4, font=(FONT_FAMILY, 9)).pack(side="left")
+        ttk.Label(detail_row, text="%", style="Card.TLabel",
+                  font=(FONT_FAMILY, 9)).pack(side="left", padx=(2, 20))
+        ttk.Label(detail_row, text="배경색(HEX)", style="Card.TLabel",
+                  font=(FONT_FAMILY, 9, "bold")).pack(side="left", padx=(0, 6))
+        self.var_unified_bg_color = tk.StringVar(value="FFFFFF")
+        ttk.Entry(detail_row, textvariable=self.var_unified_bg_color,
+                  width=8, font=(FONT_FAMILY, 9)).pack(side="left")
+
+        # 실행 버튼 + 프로그레스
+        action_row = ttk.Frame(opt_frame, style="Card.TFrame")
+        action_row.pack(fill="x", pady=(4, 0))
+        self.btn_unified_file = ttk.Button(
+            action_row, text="  파일 실행  ",
+            command=lambda: self._run_unified_photoroom("file"), style="Accent.TButton")
+        self.btn_unified_file.pack(side="left", padx=(0, 6), ipady=3)
+        self.btn_unified_run = ttk.Button(
+            action_row, text="  폴더 실행  ",
+            command=lambda: self._run_unified_photoroom("batch"), style="Accent.TButton")
+        self.btn_unified_run.pack(side="left", padx=(0, 6), ipady=3)
+        self.btn_unified_stop = ttk.Button(
+            action_row, text="중지",
+            command=self._stop_unified_photoroom, state="disabled")
+        self.btn_unified_stop.pack(side="left", padx=(0, 6), ipady=3)
+        self.btn_unified_vf = ttk.Button(
+            action_row, text="뷰파인더",
+            command=self._open_viewfinder, state="disabled",
+            style="Viewfinder.TButton")
+        self.btn_unified_vf.pack(side="left", padx=(0, 12), ipady=3)
+        self.var_unified_progress = tk.DoubleVar(value=0)
+        self.unified_progress = ttk.Progressbar(
+            action_row, mode="determinate",
+            variable=self.var_unified_progress, maximum=100)
+        self.unified_progress.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self.lbl_unified_progress = ttk.Label(action_row, text="0%", width=5, anchor="e",
+                                               font=(FONT_FAMILY, 9))
+        self.lbl_unified_progress.pack(side="left")
+
+        # 로그
+        self.unified_log = scrolledtext.ScrolledText(
+            parent, height=16, font=("Consolas", 9),
+            bg="#1e1e2e", fg="#cdd6f4", insertbackground="white",
+            wrap="word", state="disabled", relief="flat", borderwidth=0)
+        self.unified_log.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+        self.unified_log.tag_config("info", foreground="#89b4fa")
+        self.unified_log.tag_config("success", foreground="#a6e3a1")
+        self.unified_log.tag_config("error", foreground="#f38ba8")
+        self.unified_log.tag_config("warn", foreground="#fab387")
+
+        self._unified_processing = False
+
+    def _log_unified(self, msg, tag="info"):
+        def _do():
+            self.unified_log.config(state="normal")
+            self.unified_log.insert("end", msg + "\n", tag)
+            self.unified_log.see("end")
+            self.unified_log.config(state="disabled")
+        self.after(0, _do)
+
+    def _set_unified_progress(self, current, total):
+        def _do():
+            pct = (current / total * 100) if total > 0 else 0
+            self.var_unified_progress.set(pct)
+            self.lbl_unified_progress.config(text=f"{pct:.0f}%")
+        self.after(0, _do)
+
+    def _run_unified_photoroom(self, mode="batch"):
+        output_dir = self.var_unified_output.get().strip() or str(APP_DIR / "output")
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        if mode == "file":
+            filetypes = [("이미지 파일", "*.jpg *.jpeg *.png *.bmp *.tiff *.webp"),
+                         ("모든 파일", "*.*")]
+            current = self.var_unified_input.get().strip()
+            initial_dir = str(Path(current).parent) if current and Path(current).is_file() \
+                          else (current if current and Path(current).is_dir() else "")
+            filepaths = filedialog.askopenfilenames(
+                title="처리할 이미지 파일 선택 (여러 장 가능)",
+                filetypes=filetypes, initialdir=initial_dir or None)
+            if not filepaths:
+                return
+            file_list = list(filepaths)
+        else:
+            input_path = self.var_unified_input.get().strip()
+            if not input_path:
+                messagebox.showwarning("경고", "입력 폴더를 선택하세요.")
+                return
+            if not Path(input_path).is_dir():
+                messagebox.showerror("오류", f"입력 폴더가 존재하지 않습니다:\n{input_path}")
+                return
+            from src.utils.image_io import get_image_files
+            file_list = get_image_files(input_path)
+            if not file_list:
+                messagebox.showwarning("경고", "폴더에 이미지 파일이 없습니다.")
+                return
+
+        # UI 초기화
+        self._unified_processing = True
+        self.btn_unified_file.config(state="disabled")
+        self.btn_unified_run.config(state="disabled")
+        self.btn_unified_stop.config(state="normal")
+        self.var_unified_progress.set(0)
+        self.lbl_unified_progress.config(text="0%")
+        self.unified_log.config(state="normal")
+        self.unified_log.delete("1.0", "end")
+        self.unified_log.config(state="disabled")
+
+        # 뷰파인더 초기화 후 즉시 활성화 + 자동 오픈
+        self._viewfinder_pairs = []
+        self._vf_file_stages = {}
+        self.btn_unified_vf.config(state="normal")
+        self.after(100, self._open_viewfinder)
+
+        shadow_mode = self.var_unified_shadow_mode.get()
+        bg_color = self.var_unified_bg_color.get().strip().lstrip("#") or "FFFFFF"
+        shadow_opacity = self.var_unified_opacity.get()
+        vision_provider = self.var_unified_vision.get()
+        total = len(file_list)
+
+        completed = [0]
+        lock = threading.Lock()
+
+        def _process_one(idx, img_path):
+            fname = Path(img_path).name
+            if not self._unified_processing:
+                return
+            self._log_unified(f"-- [{idx}/{total}] {fname} 시작 --")
+            with lock:
+                vf_idx = self._vf_register_file(img_path)
+            try:
+                from src.pipeline import ImageEditPipeline
+                pl = ImageEditPipeline(config_dir=str(CONFIG_DIR))
+                pl._vision_provider = vision_provider
+                result = pl.process_single_unified_photoroom(
+                    image_path=img_path,
+                    output_dir=output_dir,
+                    shadow_mode=shadow_mode,
+                    bg_color=bg_color,
+                    shadow_opacity=shadow_opacity,
+                    on_log=self._log_unified,
+                    idx=idx,
+                )
+            except Exception as e:
+                import traceback
+                self._log_unified(f"[{fname}] 오류: {e}", "error")
+                self._log_unified(traceback.format_exc(), "error")
+                result = {"success": False, "error": str(e), "path": img_path}
+            with lock:
+                self._vf_complete_file(vf_idx, result)
+                # 라우팅 정보 저장 (뷰파인더 표시용)
+                img_type = result.get("image_type", "")
+                bg = result.get("background", "")
+                if img_type == "detail" and bg not in ("clean", "white", ""):
+                    route = "claid_only"
+                elif img_type == "detail":
+                    route = "detail_bg_only"
+                else:
+                    route = "full_shadow"
+                routing_info = {"route": route, "image_type": img_type, "background": bg}
+                if 0 <= vf_idx < len(self._viewfinder_pairs):
+                    self._viewfinder_pairs[vf_idx]["routing_info"] = routing_info
+                if fname in self._vf_file_stages:
+                    self._vf_file_stages[fname]["routing_info"] = routing_info
+                completed[0] += 1
+                self._set_unified_progress(completed[0], total)
+            if result.get("success"):
+                self._log_unified(f"[{fname}] ✓ 완료 ({completed[0]}/{total})", "success")
+            else:
+                self._log_unified(f"[{fname}] ✗ 실패: {result.get('error','')} ({completed[0]}/{total})", "error")
+
+        def _worker():
+            try:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = {
+                        executor.submit(_process_one, idx, img_path): img_path
+                        for idx, img_path in enumerate(file_list, 1)
+                    }
+                    for future in as_completed(futures):
+                        if not self._unified_processing:
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            self._log_unified("중지됨.", "warn")
+                            break
+                        try:
+                            future.result()
+                        except Exception:
+                            pass
+            except Exception as e:
+                self._log_unified(f"오류 발생: {e}", "error")
+            finally:
+                self.after(0, self._on_unified_done)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _stop_unified_photoroom(self):
+        self._unified_processing = False
+
+    def _on_unified_done(self):
+        self._unified_processing = False
+        self.btn_unified_file.config(state="normal")
+        self.btn_unified_run.config(state="normal")
+        self.btn_unified_stop.config(state="disabled")
+        self.var_unified_progress.set(100)
+        self.lbl_unified_progress.config(text="완료")
+        if self._viewfinder_pairs:
+            self.btn_unified_vf.config(state="normal")
 
     # ── 카테고리 더블클릭 편집 ──
     def _on_cat_double_click(self, event):
@@ -3071,6 +3372,36 @@ class App(tk.Tk):
     def _toggle_photoroom_key_visibility(self):
         self.entry_photoroom_key.config(show="" if self.var_show_photoroom_key.get() else "*")
 
+    def _check_photoroom_credits(self):
+        key = self.var_photoroom_key.get().strip() or os.environ.get("PHOTOROOM_API_KEY", "")
+        if not key:
+            messagebox.showwarning("경고", "Photoroom API 키를 먼저 입력하세요.")
+            return
+        self.lbl_photoroom_credits.config(text="확인 중...", foreground="#888")
+
+        def _fetch():
+            try:
+                import urllib.request
+                req = urllib.request.Request(
+                    "https://image-api.photoroom.com/v1/account",
+                    headers={"x-api-key": key},
+                )
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    import json
+                    data = json.loads(resp.read().decode())
+                credits = data.get("credits", {})
+                available = credits.get("available", "?")
+                total = credits.get("subscription", "?")
+                used = (total - available) if isinstance(total, int) and isinstance(available, int) else "?"
+                text = f"남은 크레딧: {available:,} / {total:,}  (사용: {used:,})"
+                color = "#16a34a" if isinstance(available, int) and available > 100 else "#dc2626"
+                self.after(0, lambda: self.lbl_photoroom_credits.config(text=text, foreground=color))
+            except Exception as e:
+                self.after(0, lambda: self.lbl_photoroom_credits.config(
+                    text=f"오류: {e}", foreground="#dc2626"))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
     def _save_claid_key(self):
         key = self.var_claid_key.get().strip()
         if not key:
@@ -3539,6 +3870,40 @@ class App(tk.Tk):
 
     def _open_output_folder(self):
         folder = self.var_output.get().strip()
+        if folder and Path(folder).is_dir():
+            os.startfile(folder)
+        else:
+            messagebox.showwarning("알림", "출력 폴더가 존재하지 않습니다.")
+
+    # ── 임시 옵션 탭 입출력 폴더 ──
+    def _browse_unified_input(self):
+        folder = filedialog.askdirectory(title="입력 이미지 폴더 선택")
+        if folder:
+            self.var_unified_input.set(folder)
+            out = Path(folder) / "OUTPUT"
+            out.mkdir(parents=True, exist_ok=True)
+            self.var_unified_output.set(str(out))
+
+    def _open_unified_input_folder(self):
+        path = self.var_unified_input.get().strip()
+        if not path:
+            messagebox.showwarning("알림", "입력 경로가 설정되지 않았습니다.")
+            return
+        p = Path(path)
+        if p.is_file():
+            os.startfile(str(p.parent))
+        elif p.is_dir():
+            os.startfile(path)
+        else:
+            messagebox.showwarning("알림", "입력 경로가 존재하지 않습니다.")
+
+    def _browse_unified_output(self):
+        folder = filedialog.askdirectory(title="출력 폴더 선택")
+        if folder:
+            self.var_unified_output.set(folder)
+
+    def _open_unified_output_folder(self):
+        folder = self.var_unified_output.get().strip()
         if folder and Path(folder).is_dir():
             os.startfile(folder)
         else:
@@ -4694,7 +5059,7 @@ class App(tk.Tk):
         VF_YELLOW = "#f9e2af"
         VF_PIP_BG = "#2a2a3a"
         VF_PIP_SKIP = "#45475a"
-        VF_IMG_BG = "#f5f5f5"
+        VF_IMG_BG = "#ffffff"
 
         dlg = tk.Toplevel(self)
         self._vf_dlg = dlg
@@ -4839,7 +5204,12 @@ class App(tk.Tk):
             status_val_frame.pack(fill="x", padx=(20, 2), pady=(1, 0))
             status_val_frame.pack_propagate(False)
 
-            # 진행 중 단계 텍스트
+            # 우측 성공/실패 텍스트
+            lbl_result = tk.Label(status_val_frame, text="", bg=VF_BG,
+                                  font=(FONT_FAMILY, 8, "bold"), anchor="e")
+            lbl_result.pack(side="right", padx=(0, 4))
+
+            # 진행 중 단계 텍스트 (좌측)
             lbl_stage_text = tk.Label(status_val_frame, text="", bg=VF_BG, fg=VF_TEXT_FAINT,
                                        font=(FONT_FAMILY, 8), anchor="w")
             lbl_stage_text.pack(side="left")
@@ -4854,13 +5224,14 @@ class App(tk.Tk):
             file_rows[fname] = {
                 "frame": row, "sel_bar": sel_bar, "content": content,
                 "pips": pips, "lbl_icon": lbl_icon, "lbl_name": lbl_name,
-                "lbl_stage_text": lbl_stage_text, "val_icons": val_icons,
+                "lbl_stage_text": lbl_stage_text, "lbl_result": lbl_result,
+                "val_icons": val_icons,
                 "status_val_frame": status_val_frame, "idx": idx, "top": top,
             }
 
             # 클릭 바인딩
             all_widgets = [row, sel_bar, content, top, lbl_icon, lbl_name,
-                          pip_frame, status_val_frame, lbl_stage_text] + pips
+                          pip_frame, status_val_frame, lbl_stage_text, lbl_result] + pips
             for w in all_widgets:
                 w.bind("<Button-1>", lambda e, i=idx: _show(i))
                 w.bind("<MouseWheel>", _on_mousewheel)
@@ -4893,16 +5264,27 @@ class App(tk.Tk):
             validation = self._vf_file_stages.get(fname, {}).get("validation")
             val_icons = row_info.get("val_icons", {})
 
-            if status == "processing" and active_stage_name:
-                # 처리 중: 단계 텍스트 표시, 검증 아이콘 숨김
-                row_info["lbl_stage_text"].config(text=f"{active_stage_name} 중...",
-                                                   fg=VF_ACCENT)
+            lbl_result = row_info.get("lbl_result")
+            _route_text  = {"full_shadow": "전체컷", "detail_bg_only": "디테일(흰배경)", "claid_only": "배경없는 디테일"}
+            _route_color = {"full_shadow": "#3b82f6", "detail_bg_only": "#d97706",      "claid_only": "#16a34a"}
+
+            if status == "processing":
+                row_info["lbl_stage_text"].config(
+                    text="처리 중..." if not active_stage_name else f"{active_stage_name} 중...",
+                    fg=VF_ACCENT)
                 row_info["lbl_stage_text"].pack(side="left")
+                if lbl_result:
+                    lbl_result.config(text="")
                 for lbl in val_icons.values():
                     lbl.pack_forget()
             elif status == "done" and validation:
-                # 완료 + 검증 결과 있음: 아이콘 표시, 텍스트 숨김
-                row_info["lbl_stage_text"].pack_forget()
+                # 완료 + 검증 결과: 라우팅 텍스트(좌) + 검증 아이콘
+                ri = self._vf_file_stages.get(fname, {}).get("routing_info")
+                route = ri.get("route", "") if ri else ""
+                row_info["lbl_stage_text"].config(
+                    text=_route_text.get(route, "완료"),
+                    fg=_route_color.get(route, VF_GREEN))
+                row_info["lbl_stage_text"].pack(side="left")
                 for key, label in [("background", "배경"), ("shadow", "그림자"), ("integrity", "원형")]:
                     lbl = val_icons.get(key)
                     if not lbl:
@@ -4913,19 +5295,30 @@ class App(tk.Tk):
                     color = VF_GREEN if is_pass else VF_RED
                     lbl.config(text=f"{mark}{label}", fg=color)
                     lbl.pack(side="left", padx=(0, 6))
+                if lbl_result:
+                    lbl_result.config(text="성공", fg=VF_GREEN)
             elif status == "done":
-                # 완료, 검증 없음
-                row_info["lbl_stage_text"].config(text="완료", fg=VF_GREEN)
+                ri = self._vf_file_stages.get(fname, {}).get("routing_info")
+                route = ri.get("route", "") if ri else ""
+                row_info["lbl_stage_text"].config(
+                    text=_route_text.get(route, "완료"),
+                    fg=_route_color.get(route, VF_GREEN))
                 row_info["lbl_stage_text"].pack(side="left")
+                if lbl_result:
+                    lbl_result.config(text="성공", fg=VF_GREEN)
                 for lbl in val_icons.values():
                     lbl.pack_forget()
             elif status == "fail":
-                row_info["lbl_stage_text"].config(text="실패", fg=VF_RED)
+                row_info["lbl_stage_text"].config(text="", fg=VF_TEXT_FAINT)
                 row_info["lbl_stage_text"].pack(side="left")
+                if lbl_result:
+                    lbl_result.config(text="실패", fg=VF_RED)
                 for lbl in val_icons.values():
                     lbl.pack_forget()
             else:
                 row_info["lbl_stage_text"].config(text="")
+                if lbl_result:
+                    lbl_result.config(text="")
                 for lbl in val_icons.values():
                     lbl.pack_forget()
 
@@ -5094,6 +5487,33 @@ class App(tk.Tk):
         lbl_vision = tk.Label(vision_row, text="", bg=VF_BG, fg=VF_TEXT_DIM,
                               font=(FONT_FAMILY, 9), anchor="w", justify="left")
         lbl_vision.pack(side="left", expand=True, fill="x")
+
+        # 라우팅 배지 행 (임시옵션 탭 전용)
+        routing_row = tk.Frame(right, bg=VF_BG)
+        routing_row.pack(fill="x", padx=12, pady=(2, 0))
+        lbl_routing = tk.Label(routing_row, text="", bg=VF_BG,
+                               font=(FONT_FAMILY, 9, "bold"), anchor="w")
+        lbl_routing.pack(side="left")
+
+        _ROUTE_STYLES = {
+            "full_shadow":    ("\U0001f535 전체컷  →  배경제거 + 그림자 + Claid", "#3b82f6"),
+            "detail_bg_only": ("\U0001f7e1 디테일컷 (흰배경)  →  배경제거만 + Claid",   "#d97706"),
+            "claid_only":     ("\U0001f7e2 배경없는 디테일컷  →  Claid 보정만",         "#16a34a"),
+        }
+
+        def _update_routing_display(pair):
+            ri = pair.get("routing_info")
+            if not ri:
+                lbl_routing.config(text="")
+                routing_row.pack_forget()
+                return
+            route = ri.get("route", "")
+            text, color = _ROUTE_STYLES.get(route, (f"? {route}", VF_TEXT_DIM))
+            bg_val = ri.get("background", "")
+            img_t = ri.get("image_type", "")
+            detail = f"  ({img_t} / bg={bg_val})" if img_t else ""
+            lbl_routing.config(text=text + detail, fg=color)
+            routing_row.pack(fill="x", padx=12, pady=(2, 0))
 
         def _update_vision_display(pair):
             vi = pair.get("vision_info")
@@ -6482,6 +6902,7 @@ class App(tk.Tk):
 
             _update_validation_display(pair)
             _update_vision_display(pair)
+            _update_routing_display(pair)
             _update_eval_panel(pair)
 
         def _go(delta):

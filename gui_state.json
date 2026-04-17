@@ -1,6 +1,6 @@
 {
-  "input_folder": "X:/촬영팀/AI/촬영본/04.06/26-04-06_015.jpg",
-  "output_folder": "D:/CLAUDE_CODE_WORK/output",
+  "input_folder": "X:/촬영팀/AI/촬영본/04.10",
+  "output_folder": "X:/촬영팀/AI/촬영본/04.10/OUTPUT",
   "vision_provider": "gemini",
   "bg_provider": "removebg",
   "enhance_provider": "claid",

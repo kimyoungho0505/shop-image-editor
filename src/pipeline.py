@@ -23,6 +23,27 @@ from .utils.category import CategoryManager
 from .sam.client import SamShadowClient
 
 
+def _shrink_bytes(image_bytes: bytes, max_px: int = 3000) -> bytes:
+    """이미지 바이트가 max_px 초과 시 비율 유지하며 JPEG로 축소 반환.
+    API 전송 전 메모리·처리 비용 절감 목적."""
+    from PIL import Image
+    import io
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            w, h = img.size
+            if max(w, h) <= max_px:
+                return image_bytes
+            scale = max_px / max(w, h)
+            new_w, new_h = int(w * scale), int(h * scale)
+            resized = img.convert("RGB").resize((new_w, new_h), Image.LANCZOS)
+            buf = io.BytesIO()
+            resized.save(buf, format="JPEG", quality=92)
+            resized.close()
+            return buf.getvalue()
+    except Exception:
+        return image_bytes
+
+
 def _add_ground_shadow(image_bytes: bytes) -> bytes:
     """중앙 배치된 이미지에 자연스러운 접지 그림자를 추가한다."""
     from PIL import Image, ImageFilter
@@ -1583,6 +1604,11 @@ class ImageEditPipeline:
         image_bytes = Path(image_path).read_bytes()
         _log(f"  파일 크기: {len(image_bytes) // 1024}KB")
 
+        # 원본이 3000px 초과 시 API 전송·처리용으로 축소 (메모리 절약)
+        image_bytes = _shrink_bytes(image_bytes, max_px=3000)
+        if len(image_bytes) < Path(image_path).stat().st_size:
+            _log(f"  원본 축소 완료: {len(image_bytes) // 1024}KB")
+
         # ★ 단계 이미지 저장: 원본
         _stage_img("원본", image_bytes)
 
@@ -1602,6 +1628,11 @@ class ImageEditPipeline:
                 notes="분석 생략 - 기본 분류값 적용",
             )
             _log(f"  AI 분석 생략 - 기본 분류값 적용")
+
+        # 분석 완료 → numpy 배열 즉시 해제 (비압축 상태로 메모리 점유 큼)
+        del img
+        import gc as _gc
+        _gc.collect()
 
         image_type = instruction.image_type
         background = instruction.background
@@ -1963,16 +1994,17 @@ class ImageEditPipeline:
             if len(current_bytes) > 9 * 1024 * 1024:
                 from PIL import Image
                 import io
-                _img = Image.open(io.BytesIO(current_bytes))
-                if _img.mode == "RGBA":
-                    _bg = Image.new("RGB", _img.size, (255, 255, 255))
-                    _bg.paste(_img, mask=_img.split()[3])
-                    _img = _bg
-                else:
-                    _img = _img.convert("RGB")
+                with Image.open(io.BytesIO(current_bytes)) as _img:
+                    if _img.mode == "RGBA":
+                        _bg = Image.new("RGB", _img.size, (255, 255, 255))
+                        _bg.paste(_img, mask=_img.split()[3])
+                    else:
+                        _bg = _img.convert("RGB")
                 _buf = io.BytesIO()
-                _img.save(_buf, format="JPEG", quality=95)
+                _bg.save(_buf, format="JPEG", quality=95)
+                _bg.close()
                 current_bytes = _buf.getvalue()
+                del _buf
                 _log(f"  Claid 전달용 JPEG 변환 ({len(current_bytes) // 1024}KB)")
             if override_params and "enhance_config" in override_params:
                 claid_config = dict(override_params["enhance_config"])
@@ -1990,14 +2022,16 @@ class ImageEditPipeline:
             try:
                 from PIL import Image as _PILImage
                 import io as _io
-                _check = _PILImage.open(_io.BytesIO(current_bytes))
-                if _check.mode == "RGBA":
-                    _wbg = _PILImage.new("RGB", _check.size, (255, 255, 255))
-                    _wbg.paste(_check, mask=_check.split()[3])
-                    _wbuf = _io.BytesIO()
-                    _wbg.save(_wbuf, format="PNG")
-                    current_bytes = _wbuf.getvalue()
-                    _log(f"  RGBA→흰배경 변환 완료 ({len(current_bytes) // 1024}KB)")
+                with _PILImage.open(_io.BytesIO(current_bytes)) as _check:
+                    if _check.mode == "RGBA":
+                        _wbg = _PILImage.new("RGB", _check.size, (255, 255, 255))
+                        _wbg.paste(_check, mask=_check.split()[3])
+                        _wbuf = _io.BytesIO()
+                        _wbg.save(_wbuf, format="PNG")
+                        _wbg.close()
+                        current_bytes = _wbuf.getvalue()
+                        del _wbuf
+                        _log(f"  RGBA→흰배경 변환 완료 ({len(current_bytes) // 1024}KB)")
             except Exception:
                 pass
             _log(f"  Claid.ai 보정 (hdr={claid_config.get('hdr', 20)}, "
@@ -4684,6 +4718,220 @@ class ImageEditPipeline:
             "best_score": best_score,
             "rollback_snapshot": snapshot_dir,
         }
+
+    # ──────────────────────────────────────────────────────────────
+    # 포토룸 배경+그림자 통합 방식 (임시 옵션 탭용)
+    # ──────────────────────────────────────────────────────────────
+
+    def process_single_unified_photoroom(
+        self,
+        image_path: str,
+        output_dir: str,
+        shadow_mode: str = "ai.soft",
+        bg_color: str = "FFFFFF",
+        shadow_opacity: int = 20,
+        on_log: Callable = None,
+        idx: int = 1,
+    ) -> dict:
+        """Vision 분류 → 자동 분기 처리.
+
+        full shot           → Photoroom(배경+그림자) → Claid
+        detail + 흰배경     → Photoroom(배경만)      → Claid
+        detail + 비흰배경   → Claid만
+        """
+        _log = on_log or (lambda msg, tag="info": logger.info(msg))
+        try:
+            image_bytes = Path(image_path).read_bytes()
+            image_bytes = _shrink_bytes(image_bytes, max_px=3000)
+            _log(f"  원본 로드: {len(image_bytes)//1024}KB")
+
+            # 1. Vision 분류 (image_type + background)
+            _log("  [Vision] 이미지 분류 중...")
+            try:
+                instruction = self.analyze_only(image_path, category="", on_log=_log)
+                image_type = instruction.image_type   # full / detail / package / worn
+                background = instruction.background   # clean / colored / gradient ...
+            except Exception as ve:
+                import traceback as _tb
+                _log(f"  Vision 분류 실패 → full/clean 으로 가정: {ve}", "warn")
+                _log(_tb.format_exc(), "warn")
+                image_type, background = "full", "clean"
+
+            is_detail = image_type == "detail"
+            is_clean_bg = background in ("clean", "white", "")
+            _log(f"  분류 결과: {image_type} / 배경={background}")
+
+            claid_settings = self._settings.get("claid", {})
+            claid_config = dict(claid_settings.get(image_type, claid_settings.get("full", {})))
+            output_config = self._settings.get("output", {})
+            max_size_kb = output_config.get("max_file_size_kb", 2024)
+
+            if is_detail and not is_clean_bg:
+                # ── 케이스 3: 디테일 + 비흰배경 → Claid만 ──
+                _log("  [경로] 디테일컷 + 비흰배경 → Claid 보정만 수행", "info")
+                current_bytes = self._claid.process(image_bytes, image_type, config=claid_config)
+                if not current_bytes:
+                    current_bytes = image_bytes
+                    _log("  Claid 응답 없음 → 원본 그대로 사용", "warn")
+                else:
+                    _log(f"  Claid 완료 ({len(current_bytes)//1024}KB)", "success")
+
+            else:
+                # ── 케이스 1/2: Photoroom 호출 ──
+                pr_config = {
+                    "background.color": bg_color,
+                    "export.format": "jpg",
+                    "outputSize": "1000x1000",
+                    "padding": "0.1",
+                    "scaling": "fit",
+                }
+                if not is_detail:
+                    # 케이스 1: full → 그림자 포함
+                    _log(f"  [경로] 전체컷 → Photoroom 배경+그림자({shadow_mode})", "info")
+                    pr_config["shadow.mode"] = shadow_mode
+                    pr_config["shadow.opacity"] = str(shadow_opacity)
+                else:
+                    # 케이스 2: 디테일 + 흰배경 → 그림자 없이 배경만
+                    _log("  [경로] 디테일컷 + 흰배경 → Photoroom 배경만", "info")
+
+                result_bytes = self._photoroom.process(
+                    image_bytes, image_type, background,
+                    output_size="1000x1000", config=pr_config,
+                )
+                if not result_bytes:
+                    return {"success": False, "error": "Photoroom 응답 없음", "path": image_path}
+                _log(f"  Photoroom 완료 ({len(result_bytes)//1024}KB)", "success")
+
+                # 케이스 2 전용: 누끼 품질 검증 → 불량이면 원본으로 롤백
+                claid_input = result_bytes
+                if is_detail:
+                    _log("  [검증] 누끼 품질 확인 중...", "info")
+                    nukki_ok, nukki_reason = self._check_detail_nukki_quality(
+                        result_bytes, on_log=_log)
+                    if nukki_ok:
+                        _log(f"  누끼 품질 양호 → Claid 처리", "success")
+                    else:
+                        _log(f"  누끼 품질 불량 ({nukki_reason}) → 원본으로 대체 후 Claid", "warn")
+                        claid_input = image_bytes
+
+                current_bytes = self._claid.process(claid_input, image_type, config=claid_config)
+                if not current_bytes:
+                    current_bytes = claid_input
+                    _log("  Claid 응답 없음 → 이전 결과 사용", "warn")
+                else:
+                    _log(f"  Claid 완료 ({len(current_bytes)//1024}KB)", "success")
+
+            # 저장
+            output_path = Path(output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+            namer = FileNamer(f"{idx:03d}")
+            file_name = namer.next_name(".jpg")
+            file_path = output_path / file_name
+            info = self._optimizer.save_from_bytes(current_bytes, str(file_path), max_size_kb)
+            _log(f"  출력: {file_name} ({info['size_kb']}KB)", "success")
+            return {
+                "success": True, "files": [info], "path": image_path,
+                "image_type": image_type, "background": background,
+            }
+
+        except Exception as e:
+            import traceback
+            _log(f"  오류: {e}", "error")
+            _log(traceback.format_exc(), "error")
+            return {"success": False, "error": str(e), "path": image_path}
+
+    def _check_detail_nukki_quality(self, result_bytes: bytes,
+                                    on_log=None) -> tuple:
+        """OpenCV로 누끼 결과에 내부 구멍이 있는지 검사한다.
+
+        배경색이 흰색인 JPEG 결과에서, 이미지 경계에 닿지 않는 흰색 연결 영역
+        (= 상품 내부 구멍)을 찾아 품질을 판정한다.
+
+        Returns:
+            (is_ok: bool, reason: str)
+        """
+        _log = on_log or (lambda msg, tag="info": logger.info(msg))
+        try:
+            import io as _io
+            import numpy as _np
+            import cv2 as _cv2
+            from PIL import Image as _Image
+
+            with _Image.open(_io.BytesIO(result_bytes)) as _img:
+                arr = _np.array(_img.convert("RGB"))
+
+            h, w = arr.shape[:2]
+
+            # 흰색 마스크 (R>240, G>240, B>240)
+            white_mask = (_np.all(arr > 240, axis=2)).astype(_np.uint8) * 255
+
+            # 테두리에서 flood fill로 외부 흰색 마킹
+            # → 외부와 연결되지 않은 흰색 = 상품 내부 구멍
+            padded = _cv2.copyMakeBorder(
+                white_mask, 1, 1, 1, 1, _cv2.BORDER_CONSTANT, value=255)
+            flood = padded.copy()
+            _cv2.floodFill(flood, None, (0, 0), 128)  # 외부 흰색 → 128로 마킹
+            flood = flood[1:-1, 1:-1]  # 패딩 제거
+
+            # 여전히 255인 픽셀 = 외부와 연결 안 된 내부 구멍
+            interior = (flood == 255)
+            interior_ratio = float(interior.sum()) / (h * w)
+
+            if interior_ratio > 0.0005:  # 0.05% 이상
+                # 구멍 위치 파악
+                ys, xs = _np.where(interior)
+                cx, cy = int(xs.mean()), int(ys.mean())
+                _log(f"  내부 흰색 구멍 감지 (면적 {interior_ratio:.1%}, "
+                     f"중심 x={cx} y={cy})", "warn")
+                return False, f"상품 내부 흰색 구멍 (면적 {interior_ratio:.1%})"
+
+            return True, "이상 없음"
+        except Exception as e:
+            _log(f"  누끼 검증 실패 → 결과 그대로 사용: {e}", "warn")
+            return True, str(e)
+
+    def process_batch_unified_photoroom(
+        self,
+        input_dir: str,
+        output_dir: str,
+        shadow_mode: str = "ai.soft",
+        bg_color: str = "FFFFFF",
+        shadow_opacity: int = 80,
+        on_log: Callable = None,
+        on_progress: Callable = None,
+        is_cancelled: Callable = None,
+    ) -> list:
+        """포토룸 통합 방식 배치 처리."""
+        _log = on_log or (lambda msg, tag="info": logger.info(msg))
+        extensions = self._settings.get("image", {}).get(
+            "supported_formats", [".jpg", ".jpeg", ".png"]
+        )
+        image_files = get_image_files(input_dir, extensions)
+        if not image_files:
+            _log(f"처리할 이미지가 없습니다: {input_dir}", "warn")
+            return []
+
+        total = len(image_files)
+        _log(f"━━━ 포토룸 통합 배치 시작: {total}개 이미지 ━━━")
+        results = []
+        for idx, img_path in enumerate(image_files, 1):
+            if is_cancelled and is_cancelled():
+                _log("작업이 중지되었습니다.", "warn")
+                break
+            fname = Path(img_path).name
+            _log(f"-- [{idx}/{total}] {fname} --")
+            if on_progress:
+                on_progress(idx, total)
+            result = self.process_single_unified_photoroom(
+                image_path=img_path, output_dir=output_dir,
+                shadow_mode=shadow_mode, bg_color=bg_color,
+                shadow_opacity=shadow_opacity, on_log=on_log, idx=idx,
+            )
+            results.append(result)
+
+        success_count = sum(1 for r in results if r.get("success"))
+        _log(f"━━━ 포토룸 통합 배치 완료: 성공 {success_count}/{len(results)} ━━━", "success")
+        return results
 
     def process_batch(self, input_dir: str, category: str, output_dir: str,
                       skip_analysis: bool = False, skip_photoroom: bool = False,

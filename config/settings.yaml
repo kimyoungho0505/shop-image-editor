@@ -29,7 +29,7 @@ openai:
   max_tokens: 2048
   temperature: 0.1
 gemini:
-  model: gemini-2.5-pro
+  model: gemini-2.5-flash
   max_tokens: 4096
   temperature: 0.1
 grok:
