@@ -1,6 +1,6 @@
 # LUXBOY Shop Image Editor - 개발 히스토리
 
-> 마지막 업데이트: 2026-04-17 (3차)
+> 마지막 업데이트: 2026-04-18 (5차)
 > 다른 PC에서 이어서 개발할 때 이 문서를 참고하세요.
 
 ---
@@ -425,4 +425,82 @@ python main.py --help
 #### ConnectedComponents 방식 실패 이유
 - 내부 구멍이 이미지 테두리의 흰 배경과 연결된 경우 "테두리 접촉" 판정 → 누락
 - Flood fill 방식은 이런 경우에도 정확히 탐지 가능
+
+---
+
+## 2026년 4월 18일 업데이트 (5차)
+
+### 🔧 폴더/파일 선택 대화상자 수정
+
+#### 문제점
+- tkinter `filedialog.askdirectory()` / `askopenfilenames()` 호출 시 `parent` 파라미터 누락
+- 대화상자가 메인 윈도우 뒤에 나타나거나 표시되지 않는 현상 발생
+- 특히 "임시옵션 탭"의 "파일 실행" 버튼 클릭 시 파일 선택 대화상자가 나타나지 않음
+
+#### 수정 사항
+**gui.py** 파일의 모든 `filedialog` 호출에 `parent=self` 파라미터 추가:
+
+1. **_browse_input()** - 대시보드 탭 입력 폴더 선택
+   ```python
+   folder = filedialog.askdirectory(title="입력 이미지 폴더 선택", parent=self)
+   ```
+
+2. **_browse_output()** - 대시보드 탭 출력 폴더 선택
+   ```python
+   folder = filedialog.askdirectory(title="출력 폴더 선택", parent=self)
+   ```
+
+3. **_browse_unified_input()** - 임시옵션 탭 입력 폴더 선택
+   ```python
+   folder = filedialog.askdirectory(title="입력 이미지 폴더 선택", parent=self)
+   ```
+
+4. **_browse_unified_output()** - 임시옵션 탭 출력 폴더 선택
+   ```python
+   folder = filedialog.askdirectory(title="출력 폴더 선택", parent=self)
+   ```
+
+5. **_run_unified_photoroom("file")** - 파일 실행 모드 파일 선택
+   ```python
+   filepaths = filedialog.askopenfilenames(
+       title="처리할 이미지 파일 선택 (여러 장 가능)",
+       filetypes=filetypes, initialdir=initial_dir or None, parent=self)
+   ```
+
+#### 결과
+- ✅ 모든 대화상자가 메인 윈도우 위에 정상적으로 표시됨
+- ✅ 다중 모니터 환경에서도 올바른 화면에 표시됨
+- ✅ 대화상자가 포커스를 받아 키보드/마우스 입력 즉시 가능
+
+### 📝 API 키 설정 파일 생성
+
+#### .env 파일 생성
+프로젝트 루트에 `.env` 파일 생성 (API 키 설정용 템플릿)
+
+```bash
+GEMINI_API_KEY=your_gemini_api_key_here
+PHOTOROOM_API_KEY=your_photoroom_api_key_here
+# ANTHROPIC_API_KEY=your_anthropic_api_key_here (선택사항)
+# OPENAI_API_KEY=your_openai_api_key_here (선택사항)
+# XAI_API_KEY=your_xai_api_key_here (선택사항)
+```
+
+#### 필수 API 키
+1. **Google Gemini Vision API** (이미지 분류용)
+   - 설정: https://aistudio.google.com/app/apikeys
+   - .env: `GEMINI_API_KEY=...`
+
+2. **Photoroom API** (배경 제거용)
+   - 설정: https://app.photoroom.com/api
+   - .env: `PHOTOROOM_API_KEY=...`
+
+#### API 키 등록 후
+프로그램을 재시작하면 이미지 처리 기능이 정상 작동
+
+### 📊 변경사항 요약
+| 항목 | 수정 내용 |
+|------|---------|
+| gui.py | filedialog 호출 5곳에 parent=self 추가 |
+| .env | 새로 생성 (API 키 설정 템플릿) |
+| Commit | "Fix folder/file selection dialogs in tkinter GUI" |
 
