@@ -4741,9 +4741,9 @@ class ImageEditPipeline:
         """
         _log = on_log or (lambda msg, tag="info": logger.info(msg))
         try:
-            image_bytes = Path(image_path).read_bytes()
-            image_bytes = _shrink_bytes(image_bytes, max_px=3000)
-            _log(f"  원본 로드: {len(image_bytes)//1024}KB")
+            original_bytes = Path(image_path).read_bytes()  # 원본 무압축 보존
+            image_bytes = _shrink_bytes(original_bytes, max_px=3000)
+            _log(f"  원본 로드: {len(original_bytes)//1024}KB")
 
             # 1. Vision 분류 (image_type + background)
             _log("  [Vision] 이미지 분류 중...")
@@ -4752,23 +4752,30 @@ class ImageEditPipeline:
                 image_type = instruction.image_type   # full / detail / package / worn
                 background = instruction.background   # clean / colored / gradient ...
                 shooting_angle = instruction.shooting_angle  # front / top_down / side / ...
+                is_label_cut = instruction.is_label_cut  # 바코드/모델명 태그 확대컷
             except Exception as ve:
                 import traceback as _tb
                 _log(f"  Vision 분류 실패 → full/clean 으로 가정: {ve}", "warn")
                 _log(_tb.format_exc(), "warn")
-                image_type, background, shooting_angle = "full", "clean", "front"
+                image_type, background, shooting_angle, is_label_cut = "full", "clean", "front", False
 
             is_detail = image_type == "detail"
             is_clean_bg = background in ("clean", "white", "")
             is_top_down = shooting_angle == "top_down"
-            _log(f"  분류 결과: {image_type} / 배경={background} / 각도={shooting_angle}")
+            _log(f"  분류 결과: {image_type} / 배경={background} / 각도={shooting_angle}"
+                 + (" / 라벨컷" if is_label_cut else ""))
 
             claid_settings = self._settings.get("claid", {})
             claid_config = dict(claid_settings.get(image_type, claid_settings.get("full", {})))
             output_config = self._settings.get("output", {})
             max_size_kb = output_config.get("max_file_size_kb", 2024)
 
-            if is_top_down:
+            if is_label_cut:
+                # ── 케이스 5: 라벨/바코드컷 → 원본 그대로 저장 (처리 없음) ──
+                _log("  [경로] 라벨/바코드컷 → 처리 없이 원본 저장 (배경제거·보정 없음)", "info")
+                current_bytes = original_bytes
+
+            elif is_top_down:
                 # ── 케이스 4: 수직촬영(탑다운) → 누끼/그림자 없이 Claid만 ──
                 _log("  [경로] 수직촬영(탑다운) → Claid 보정만 수행 (배경제거·그림자 없음)", "info")
                 current_bytes = self._claid.process(image_bytes, image_type, config=claid_config)
@@ -4845,6 +4852,7 @@ class ImageEditPipeline:
                 "success": True, "files": [info], "path": image_path,
                 "image_type": image_type, "background": background,
                 "shooting_angle": shooting_angle,
+                "is_label_cut": is_label_cut,
             }
 
         except Exception as e:

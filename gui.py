@@ -2369,7 +2369,10 @@ class App(tk.Tk):
                 img_type = result.get("image_type", "")
                 bg = result.get("background", "")
                 shooting_angle = result.get("shooting_angle", "")
-                if shooting_angle == "top_down":
+                is_label_cut = result.get("is_label_cut", False)
+                if is_label_cut:
+                    route = "label_skip"
+                elif shooting_angle == "top_down":
                     route = "top_down_only"
                 elif img_type == "detail" and bg not in ("clean", "white", ""):
                     route = "claid_only"
@@ -2382,6 +2385,7 @@ class App(tk.Tk):
                     "detail_bg_only": ["누끼"],
                     "claid_only":     [],
                     "top_down_only":  [],
+                    "label_skip":     [],
                 }
                 performed = _performed_map.get(route, [])
                 routing_info = {
@@ -5283,12 +5287,14 @@ class App(tk.Tk):
                 "detail_bg_only": "디테일(흰배경)",
                 "claid_only":     "배경없는 디테일",
                 "top_down_only":  "수직촬영",
+                "label_skip":     "라벨/바코드",
             }
             _route_color = {
                 "full_shadow":    "#3b82f6",
                 "detail_bg_only": "#d97706",
                 "claid_only":     "#16a34a",
                 "top_down_only":  "#7c3aed",
+                "label_skip":     "#6b7280",
             }
 
             def _route_label(ri):
@@ -5528,6 +5534,7 @@ class App(tk.Tk):
             "detail_bg_only": ("\U0001f7e1 디테일컷 (흰배경)  →  누끼 + 보정",           "#d97706"),
             "claid_only":     ("\U0001f7e2 배경없는 디테일컷  →  보정만",                "#16a34a"),
             "top_down_only":  ("\U0001f7e3 수직촬영(탑다운)  →  보정만  (누끼·그림자 제외)", "#7c3aed"),
+            "label_skip":     ("\u26aa 라벨/바코드컷  →  처리 없음  (원본 그대로)",        "#6b7280"),
         }
 
         def _update_routing_display(pair):
@@ -5656,6 +5663,196 @@ class App(tk.Tk):
                                activebackground=VF_PURPLE, activeforeground=VF_BG,
                                state="disabled")
         btn_claude.pack(side="right", padx=(4, 0))
+
+        # ── 수동 재처리 패널 ──────────────────────────────────────────────────
+        rp_panel = tk.Frame(right, bg=VF_BG)
+        rp_panel.pack(fill="x", padx=12, pady=(6, 0))
+
+        tk.Frame(rp_panel, bg=VF_BORDER, height=1).pack(fill="x", pady=(0, 6))
+
+        tk.Label(rp_panel, text="\u270f\ufe0f  \uc218\ub3d9 \uc7ac\uc791\uc5c5",
+                 bg=VF_BG, fg="#bac2de", font=(FONT_FAMILY, 10, "bold")).pack(anchor="w")
+
+        # 누끼 방식 선택
+        nukki_row = tk.Frame(rp_panel, bg=VF_BG)
+        nukki_row.pack(fill="x", pady=(4, 0))
+        tk.Label(nukki_row, text="\ub204\ub07c:", bg=VF_BG, fg=VF_TEXT_DIM,
+                 font=(FONT_FAMILY, 9), width=5, anchor="w").pack(side="left")
+        rp_nukki_var = tk.StringVar(value="\uc5c6\uc74c")
+        for label in ["\uc5c6\uc74c", "Photoroom", "RemoveBG"]:
+            tk.Radiobutton(nukki_row, text=label, variable=rp_nukki_var, value=label,
+                           bg=VF_BG, fg=VF_TEXT, selectcolor=VF_CARD,
+                           activebackground=VF_BG, font=(FONT_FAMILY, 9),
+                           cursor="hand2").pack(side="left", padx=(0, 8))
+
+        # 보정 선택
+        enhance_row = tk.Frame(rp_panel, bg=VF_BG)
+        enhance_row.pack(fill="x", pady=(2, 0))
+        tk.Label(enhance_row, text="\ubcf4\uc815:", bg=VF_BG, fg=VF_TEXT_DIM,
+                 font=(FONT_FAMILY, 9), width=5, anchor="w").pack(side="left")
+        rp_enhance_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(enhance_row, text="Claid \ubcf4\uc815", variable=rp_enhance_var,
+                       bg=VF_BG, fg=VF_TEXT, selectcolor=VF_CARD,
+                       activebackground=VF_BG, font=(FONT_FAMILY, 9),
+                       cursor="hand2").pack(side="left")
+
+        # 버튼 행
+        rp_btn_row = tk.Frame(rp_panel, bg=VF_BG)
+        rp_btn_row.pack(fill="x", pady=(6, 4))
+
+        lbl_rp_status = tk.Label(rp_btn_row, text="", bg=VF_BG, fg=VF_TEXT_DIM,
+                                  font=(FONT_FAMILY, 8), anchor="w")
+        lbl_rp_status.pack(side="left", fill="x", expand=True)
+
+        btn_rp_confirm = tk.Button(rp_btn_row,
+                                    text="\u2713 \uc218\uc815\uc644\ub8cc (\ud30c\uc77c \uad50\uccb4)",
+                                    bg="#166534", fg="white", font=(FONT_FAMILY, 9),
+                                    bd=0, padx=10, pady=3, cursor="hand2",
+                                    state="disabled")
+        btn_rp_confirm.pack(side="right", padx=(4, 0))
+
+        btn_rp_run = tk.Button(rp_btn_row, text="\u25b6 \uc7ac\uc791\uc5c5 \uc2e4\ud589",
+                                bg="#2563eb", fg="white", font=(FONT_FAMILY, 9),
+                                bd=0, padx=10, pady=3, cursor="hand2")
+        btn_rp_run.pack(side="right", padx=(4, 0))
+
+        rp_result_bytes = [None]  # 재처리 결과 (수정완료 전까지 임시 보관)
+
+        def _on_rp_run():
+            pairs = self._viewfinder_pairs
+            if not pairs or current_idx[0] >= len(pairs):
+                return
+            pair = pairs[current_idx[0]]
+            input_path = pair.get("input_path", "")
+            if not input_path or not Path(input_path).exists():
+                lbl_rp_status.config(text="\uc6d0\ubcf8 \ud30c\uc77c \uc5c6\uc74c", fg=VF_RED)
+                return
+
+            nukki_mode = rp_nukki_var.get()
+            use_enhance = rp_enhance_var.get()
+
+            btn_rp_run.config(state="disabled", text="\u23f3 \ucc98\ub9ac \uc911...")
+            btn_rp_confirm.config(state="disabled")
+            lbl_rp_status.config(text="\ucc98\ub9ac \uc900\ube44 \uc911...", fg=VF_ACCENT)
+            rp_result_bytes[0] = None
+
+            def _run():
+                try:
+                    from src.pipeline import ImageEditPipeline
+                    from src.photoroom.client import PhotoroomClient
+                    from src.removebg.client import RemoveBgClient
+                    from src.claid.client import ClaidClient
+                    import tempfile
+
+                    image_bytes = Path(input_path).read_bytes()
+                    current = image_bytes
+                    steps_done = []
+
+                    # 누끼
+                    if nukki_mode == "Photoroom":
+                        dlg.after(0, lambda: lbl_rp_status.config(
+                            text="Photoroom \ub204\ub07c \uc791\uc5c5 \uc911...", fg=VF_ACCENT))
+                        pr = PhotoroomClient()
+                        pr_config = {
+                            "background.color": "FFFFFF",
+                            "export.format": "jpg",
+                            "outputSize": "1000x1000",
+                            "padding": "0.1",
+                            "scaling": "fit",
+                        }
+                        res = pr.process(current, "full", "clean",
+                                         output_size="1000x1000", config=pr_config)
+                        if res:
+                            current = res
+                            steps_done.append("누끼(Photoroom)")
+                    elif nukki_mode == "RemoveBG":
+                        dlg.after(0, lambda: lbl_rp_status.config(
+                            text="RemoveBG \ub204\ub07c \uc791\uc5c5 \uc911...", fg=VF_ACCENT))
+                        rb = RemoveBgClient()
+                        res = rb.process(current)
+                        if res:
+                            current = res
+                            steps_done.append("누끼(RemoveBG)")
+
+                    # 보정
+                    if use_enhance:
+                        dlg.after(0, lambda: lbl_rp_status.config(
+                            text="Claid \ubcf4\uc815 \uc911...", fg=VF_ACCENT))
+                        pl = ImageEditPipeline(config_dir=str(CONFIG_DIR))
+                        claid_settings = pl._settings.get("claid", {})
+                        claid_config = dict(claid_settings.get("full", {}))
+                        cl = ClaidClient()
+                        res = cl.process(current, "full", config=claid_config)
+                        if res:
+                            current = res
+                            steps_done.append("보정(Claid)")
+
+                    rp_result_bytes[0] = current
+                    size_kb = len(current) // 1024
+
+                    # 임시 파일에 저장 (뷰파인더 표시용)
+                    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+                    tmp.write(current)
+                    tmp.close()
+                    pair["_rp_temp_path"] = tmp.name
+
+                    steps_text = " + ".join(steps_done) if steps_done else "\ubcc0\ud658 \uc5c6\uc74c"
+
+                    def _done():
+                        lbl_rp_status.config(
+                            text=f"\uc644\ub8cc: {steps_text}  ({size_kb}KB)", fg=VF_GREEN)
+                        btn_rp_run.config(state="normal", text="\u25b6 \uc7ac\uc791\uc5c5 \uc2e4\ud589")
+                        btn_rp_confirm.config(state="normal")
+                        # 뷰파인더 우측 이미지 갱신
+                        try:
+                            from PIL import Image as _PILImage
+                            img = _PILImage.open(tmp.name)
+                            _fit_image(cv_proc, img)
+                            lbl_right_title.config(text="\u270f\ufe0f  \uc7ac\ucc98\ub9ac \uacb0\uacfc (\ubbf8\ud655\uc815)")
+                            lbl_proc_info.config(text=f"\uc7ac\ucc98\ub9ac  \u00b7  {size_kb}KB")
+                        except Exception:
+                            pass
+                    dlg.after(0, _done)
+
+                except Exception as e:
+                    import traceback as _tb
+                    err_msg = str(e)
+                    tb_str = _tb.format_exc()
+
+                    def _err():
+                        lbl_rp_status.config(text=f"\uc624\ub958: {err_msg[:50]}", fg=VF_RED)
+                        btn_rp_run.config(state="normal", text="\u25b6 \uc7ac\uc791\uc5c5 \uc2e4\ud589")
+                        self._log_unified(tb_str, "error")
+                    dlg.after(0, _err)
+
+            threading.Thread(target=_run, daemon=True).start()
+
+        def _on_rp_confirm():
+            if rp_result_bytes[0] is None:
+                return
+            pairs = self._viewfinder_pairs
+            if not pairs or current_idx[0] >= len(pairs):
+                return
+            pair = pairs[current_idx[0]]
+            out_files = pair.get("output_files", [])
+            if not out_files:
+                lbl_rp_status.config(text="\ucd9c\ub825 \ud30c\uc77c \uc815\ubcf4 \uc5c6\uc74c", fg=VF_RED)
+                return
+            out_path = out_files[0]["path"]
+            try:
+                Path(out_path).write_bytes(rp_result_bytes[0])
+                lbl_rp_status.config(
+                    text=f"\u2713 \uc800\uc7a5 \uc644\ub8cc: {Path(out_path).name}", fg=VF_GREEN)
+                btn_rp_confirm.config(state="disabled")
+                rp_result_bytes[0] = None
+                lbl_right_title.config(text="\u2728  \ucc98\ub9ac \uacb0\uacfc")
+                _show(current_idx[0], out_idx[0])
+            except Exception as e:
+                lbl_rp_status.config(text=f"\uc800\uc7a5 \uc2e4\ud328: {e}", fg=VF_RED)
+
+        btn_rp_run.config(command=_on_rp_run)
+        btn_rp_confirm.config(command=_on_rp_confirm)
+        # ─────────────────────────────────────────────────────────────────────
 
         def _update_eval_panel(pair):
             ind_eval = pair.get("independent_eval")
@@ -6839,6 +7036,14 @@ class App(tk.Tk):
             out_idx[0] = out_sub
             pair = pairs[idx]
             _highlight_row(idx)
+            # 재처리 패널 초기화 (다른 이미지로 전환 시)
+            try:
+                rp_result_bytes[0] = None
+                btn_rp_confirm.config(state="disabled")
+                lbl_rp_status.config(text="")
+                lbl_right_title.config(text="\u2728  \ucc98\ub9ac \uacb0\uacfc")
+            except Exception:
+                pass
 
             total = len(pairs)
             done_count = sum(1 for p in pairs if p.get("success"))

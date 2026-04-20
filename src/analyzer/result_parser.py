@@ -34,6 +34,7 @@ class EditInstruction:
     photoroom_params: Optional[dict] = None
     confidence: float = 0.0
     notes: str = ""
+    is_label_cut: bool = False  # 바코드/모델명/태그 확대 컷 → 누끼·보정 불필요
 
     def summary(self) -> str:
         parts = [f"유형: {self.image_type}", f"배경: {self.background}"]
@@ -162,6 +163,7 @@ class ResultParser:
             photoroom_params=data.get("photoroom_params") if isinstance(data.get("photoroom_params"), dict) else None,
             confidence=float(data.get("confidence", 0)),
             notes=str(data.get("notes", "")),
+            is_label_cut=bool(data.get("is_label_cut", False)),
         )
 
         logger.info(f"분류 결과 파싱 완료: {instruction.summary()}")
