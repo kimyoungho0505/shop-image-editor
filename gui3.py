@@ -1400,13 +1400,6 @@ class App(tk.Tk):
     def _build_temp_options_tab(self):
         parent = self.tab_temp_options
 
-        info_f = tk.LabelFrame(parent, text=" ℹ 안내 ", font=(FONT_FAMILY, 9, "bold"),
-                               bg=CARD_BG, fg="#555", padx=10, pady=6)
-        info_f.pack(fill="x", padx=12, pady=(10, 6))
-        tk.Label(info_f, text=(
-            "포토룸 배경+그림자 통합방식: 배경 제거와 AI 그림자를 하나의 API 호출로 처리 후 Claid 보정만 수행합니다."
-        ), bg=CARD_BG, fg="#444", font=(FONT_FAMILY, 9), justify="left").pack(anchor="w")
-
         # ── 입력/출력 폴더 ──
         folder_card = tk.LabelFrame(parent, text=" 폴더 ", font=(FONT_FAMILY, 9, "bold"),
                                     bg=CARD_BG, fg="#555", padx=10, pady=6)
