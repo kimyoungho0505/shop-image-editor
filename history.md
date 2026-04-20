@@ -1,6 +1,6 @@
 # LUXBOY Shop Image Editor - 개발 히스토리
 
-> 마지막 업데이트: 2026-04-18 (5차)
+> 마지막 업데이트: 2026-04-21 (7차)
 > 다른 PC에서 이어서 개발할 때 이 문서를 참고하세요.
 
 ---
@@ -573,3 +573,42 @@ PHOTOROOM_API_KEY=your_photoroom_api_key_here
 - `_to_instruction()`에서 `list.get()` 호출 → `AttributeError: 'list' object has no attribute 'get'`
 - **수정**: 방법 2·3·4 모두 `isinstance` 체크 + 첫 번째 dict 추출 로직 추가
 
+
+---
+
+## 2026년 4월 21일 업데이트 (7차)
+
+### 🆕 gui3.py — 설정·임시옵션 전용 분리 버전
+
+`gui.py`에서 **설정 탭**과 **임시 옵션 탭**만 추출하여 `gui3.py` (4,961줄) 생성
+
+#### 포함된 탭
+- **설정 탭** (`_build_settings_tab`): API 키, 프로바이더, 파라미터 설정
+- **임시 옵션 탭** (`_build_temp_options_tab`): Photoroom 단독 실행, 배경제거, 파일/폴더 처리
+
+#### 제거된 탭 (실행·프롬프트 관련)
+- 실행 탭 (`_build_main_tab`)
+- 프롬프트 편집 (`_build_prompt_tab`)
+- 평가 프롬프트 (`_build_eval_tab`)
+- 그림자 프롬프트 (`_build_shadow_hints_tab`)
+
+#### 주요 수정사항
+| 항목 | 내용 |
+|------|------|
+| 창 제목 | `"LUXBOY 설정 및 임시옵션 - gui3"` |
+| `__init__` | `self._unified_processing = False` 추가 (임시옵션 탭 상태) |
+| `_save_state` | 실행탭 변수 저장 제거 (var_input, var_skip_bg, var_workers 등) |
+| `_build_ui` | 설정 + 임시옵션 2개 탭만 생성 |
+| `_save_settings` | `concurrent_workers` 저장 라인 제거 |
+| `_load_configs` | `_load_prompts()` 호출 제거 |
+
+#### 실행 방법
+```bash
+python gui3.py
+```
+
+### 📊 변경사항 요약
+| 항목 | 수정 내용 |
+|------|---------|
+| gui3.py | 새로 생성 (4,961줄, 설정+임시옵션 전용) |
+| history.md | 7차 업데이트 |
