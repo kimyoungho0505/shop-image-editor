@@ -1,0 +1,46 @@
+rules:
+  - id: label_skip
+    name: "라벨/바코드컷"
+    conditions:
+      is_label_cut: true
+    processing:
+      nukki: false
+      shadow: false
+      enhance: false
+
+  - id: top_down_only
+    name: "수직촬영(탑다운)"
+    conditions:
+      shooting_angle: top_down
+    processing:
+      nukki: false
+      shadow: false
+      enhance: true
+
+  - id: detail_clean_bg
+    name: "디테일컷 (흰/깨끗한 배경)"
+    conditions:
+      image_type: detail
+      background_type: clean
+    processing:
+      nukki: true
+      shadow: false
+      enhance: true
+
+  - id: detail_colored_bg
+    name: "디테일컷 (유색 배경)"
+    conditions:
+      image_type: detail
+      background_type: colored
+    processing:
+      nukki: false
+      shadow: false
+      enhance: true
+
+  - id: full_shot
+    name: "전체컷 (기본)"
+    conditions: {}
+    processing:
+      nukki: true
+      shadow: true
+      enhance: true
