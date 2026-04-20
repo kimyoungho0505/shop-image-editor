@@ -504,3 +504,72 @@ PHOTOROOM_API_KEY=your_photoroom_api_key_here
 | .env | 새로 생성 (API 키 설정 템플릿) |
 | Commit | "Fix folder/file selection dialogs in tkinter GUI" |
 
+---
+
+## 2026년 4월 20일 업데이트 (6차)
+
+### 🔄 수직촬영(탑다운) 누끼·그림자 스킵
+
+- Vision API가 `shooting_angle == "top_down"` 감지 시 배경제거·그림자 없이 **Claid 보정만** 수행
+- `pipeline.py`: `is_top_down` 분기 추가 (케이스 4)
+- 결과 dict에 `shooting_angle` 반환
+- `gui.py`: `top_down_only` 라우트 추가 (보라색 `#7c3aed`)
+- 뷰파인더 파일 행: `수직촬영` 표시
+- 뷰파인더 우측: `🟣 수직촬영(탑다운) → 보정만 (누끼·그림자 제외)`
+
+### 🏷️ 수행 작업 배지 표시 (뷰파인더)
+
+라우트별로 어떤 작업이 수행됐는지 파일 행에 표시:
+
+| 라우트 | 파일 행 표시 |
+|---|---|
+| `full_shadow` | `전체컷  [누끼]  [그림자]` (파란색) |
+| `detail_bg_only` | `디테일(흰배경)  [누끼]` (주황색) |
+| `claid_only` | `배경없는 디테일` (초록색) |
+| `top_down_only` | `수직촬영` (보라색) |
+| `label_skip` | `라벨/바코드` (회색) |
+
+- `routing_info`에 `performed` 리스트 추가 (`["누끼", "그림자"]` 등)
+- 뷰파인더 우측 패널도 수행 내역 표시 (`▶ 누끼 · 그림자`)
+
+### ✏️ 뷰파인더 수동 재처리 패널
+
+결과가 마음에 들지 않을 때 원본에서 직접 재작업 가능
+
+#### UI 구성 (뷰파인더 우측 하단)
+- **누끼 방식**: 없음 / Photoroom / RemoveBG (라디오 버튼)
+- **보정**: Claid 보정 on/off (체크박스)
+- **▶ 재작업 실행**: 백그라운드 처리 → 뷰파인더 우측에 미리보기 (`✏️ 재처리 결과 (미확정)`)
+- **✓ 수정완료 (파일 교체)**: 출력 파일을 재처리 결과로 덮어씌운 후 뷰파인더 자동 갱신
+- 다른 이미지 선택 시 패널 자동 초기화
+
+#### 구현 위치
+- `gui.py`: eval_panel 하단에 `rp_panel` 프레임 추가
+- `_on_rp_run()`: 백그라운드 스레드에서 선택된 작업 순차 실행
+- `_on_rp_confirm()`: `out_files[0]["path"]`에 바이트 덮어쓰기
+- `_show()`: 이미지 전환 시 `rp_result_bytes[0] = None` 초기화
+
+### ⚪ 라벨/바코드컷 자동 스킵
+
+모델명·바코드 확인용 클로즈업 이미지를 자동 감지하여 **모든 처리 없이 원본 저장**
+
+#### 감지 대상
+- 가방/신발 내부 브랜드 태그 클로즈업
+- 제품 비닐 포장의 바코드 스티커
+- 시리얼 번호, 모델명 라벨 확대컷
+
+#### 구현
+- `result_parser.py`: `EditInstruction`에 `is_label_cut: bool = False` 필드 추가
+- `config/prompts.yaml`: 분류 JSON에 `is_label_cut` 판단 기준 추가
+- `pipeline.py`: `is_label_cut` 감지 시 케이스 5 분기 → `original_bytes` 그대로 저장
+  - `original_bytes` 변수 추가 (shrink 전 원본 보존)
+- `gui.py`: `label_skip` 라우트 추가 + `_ROUTE_STYLES`에 `⚪ 라벨/바코드컷 → 처리 없음` 등록
+
+### 🐛 버그 수정
+
+#### result_parser.py — JSON 배열 처리 누락 (방법 2/3/4)
+- **원인**: 방법 1에만 `isinstance(result, list)` 체크가 있었고 방법 2·3·4에는 없음
+- Gemini가 코드블록(`\`\`\`json`)에 배열을 감싸서 응답하면 방법 2가 list를 그대로 반환
+- `_to_instruction()`에서 `list.get()` 호출 → `AttributeError: 'list' object has no attribute 'get'`
+- **수정**: 방법 2·3·4 모두 `isinstance` 체크 + 첫 번째 dict 추출 로직 추가
+
