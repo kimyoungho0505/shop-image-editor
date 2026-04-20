@@ -828,15 +828,6 @@ class App(tk.Tk):
         _build_enhance_grid(cl_lf, self.var_claid_mode, self.claid_vars,
                             "manual", self._save_claid_settings, "cl_status")
 
-        # OpenCV
-        cv_lf = tk.LabelFrame(sf, text=" OpenCV 보정 옵션 ", font=(FONT_FAMILY, 11, "bold"),
-                              bg=CARD_BG, fg="#374151", padx=10, pady=6)
-        cv_lf.pack(fill="x", pady=(0, 8))
-        self.var_opencv_mode = tk.StringVar(value="manual")
-        self.opencv_vars = {}
-        _build_enhance_grid(cv_lf, self.var_opencv_mode, self.opencv_vars,
-                            "manual", self._save_opencv_settings, "cv_status")
-
         # ══════════════════════════════════════
         #  10. 카테고리별 여백
         # ══════════════════════════════════════
@@ -1328,20 +1319,9 @@ class App(tk.Tk):
             grok_config = data.get("grok", {})
             self.var_grok_model.set(grok_config.get("model", "grok-4-fast-non-reasoning"))
 
-            # OpenCV 보정 설정 로드
-            cv = data.get("opencv_enhance", {})
-            for img_type in ["full", "detail", "worn", "package"]:
-                type_data = cv.get(img_type, {})
-                for field in ["hdr", "sharpness", "exposure", "saturation", "contrast"]:
-                    key = (img_type, field)
-                    if key in self.opencv_vars:
-                        val = type_data.get(field, 0)
-                        self.opencv_vars[key].set(str(val))
-
             # AI 자동/수동 모드 설정 로드
             auto_opts = data.get("auto_options", {})
             self.var_claid_mode.set(auto_opts.get("claid", "manual"))
-            self.var_opencv_mode.set(auto_opts.get("opencv", "manual"))
             self.var_photoroom_mode.set(auto_opts.get("photoroom", "manual"))
 
             # gui_state에서 마지막 사용한 프로바이더 복원 (settings.yaml 기본값보다 우선)
