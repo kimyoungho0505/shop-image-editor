@@ -83,7 +83,13 @@ class ResultParser:
         match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
         if match:
             try:
-                return json.loads(match.group(1).strip())
+                result = json.loads(match.group(1).strip())
+                if isinstance(result, dict):
+                    return result
+                if isinstance(result, list):
+                    for item in result:
+                        if isinstance(item, dict):
+                            return item
             except json.JSONDecodeError:
                 pass
 
@@ -91,7 +97,13 @@ class ResultParser:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             try:
-                return json.loads(match.group(0))
+                result = json.loads(match.group(0))
+                if isinstance(result, dict):
+                    return result
+                if isinstance(result, list):
+                    for item in result:
+                        if isinstance(item, dict):
+                            return item
             except json.JSONDecodeError:
                 pass
 
@@ -112,7 +124,12 @@ class ResultParser:
                 try:
                     result = json.loads(partial)
                     logger.warning(f"잘린 JSON 복구 성공 (필드 일부 누락 가능)")
-                    return result
+                    if isinstance(result, dict):
+                        return result
+                    if isinstance(result, list):
+                        for item in result:
+                            if isinstance(item, dict):
+                                return item
                 except json.JSONDecodeError:
                     pass
 
