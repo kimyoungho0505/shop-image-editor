@@ -4751,22 +4751,34 @@ class ImageEditPipeline:
                 instruction = self.analyze_only(image_path, category="", on_log=_log)
                 image_type = instruction.image_type   # full / detail / package / worn
                 background = instruction.background   # clean / colored / gradient ...
+                shooting_angle = instruction.shooting_angle  # front / top_down / side / ...
             except Exception as ve:
                 import traceback as _tb
                 _log(f"  Vision 분류 실패 → full/clean 으로 가정: {ve}", "warn")
                 _log(_tb.format_exc(), "warn")
-                image_type, background = "full", "clean"
+                image_type, background, shooting_angle = "full", "clean", "front"
 
             is_detail = image_type == "detail"
             is_clean_bg = background in ("clean", "white", "")
-            _log(f"  분류 결과: {image_type} / 배경={background}")
+            is_top_down = shooting_angle == "top_down"
+            _log(f"  분류 결과: {image_type} / 배경={background} / 각도={shooting_angle}")
 
             claid_settings = self._settings.get("claid", {})
             claid_config = dict(claid_settings.get(image_type, claid_settings.get("full", {})))
             output_config = self._settings.get("output", {})
             max_size_kb = output_config.get("max_file_size_kb", 2024)
 
-            if is_detail and not is_clean_bg:
+            if is_top_down:
+                # ── 케이스 4: 수직촬영(탑다운) → 누끼/그림자 없이 Claid만 ──
+                _log("  [경로] 수직촬영(탑다운) → Claid 보정만 수행 (배경제거·그림자 없음)", "info")
+                current_bytes = self._claid.process(image_bytes, image_type, config=claid_config)
+                if not current_bytes:
+                    current_bytes = image_bytes
+                    _log("  Claid 응답 없음 → 원본 그대로 사용", "warn")
+                else:
+                    _log(f"  Claid 완료 ({len(current_bytes)//1024}KB)", "success")
+
+            elif is_detail and not is_clean_bg:
                 # ── 케이스 3: 디테일 + 비흰배경 → Claid만 ──
                 _log("  [경로] 디테일컷 + 비흰배경 → Claid 보정만 수행", "info")
                 current_bytes = self._claid.process(image_bytes, image_type, config=claid_config)
@@ -4832,6 +4844,7 @@ class ImageEditPipeline:
             return {
                 "success": True, "files": [info], "path": image_path,
                 "image_type": image_type, "background": background,
+                "shooting_angle": shooting_angle,
             }
 
         except Exception as e:

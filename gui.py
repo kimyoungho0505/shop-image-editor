@@ -2368,13 +2368,26 @@ class App(tk.Tk):
                 # 라우팅 정보 저장 (뷰파인더 표시용)
                 img_type = result.get("image_type", "")
                 bg = result.get("background", "")
-                if img_type == "detail" and bg not in ("clean", "white", ""):
+                shooting_angle = result.get("shooting_angle", "")
+                if shooting_angle == "top_down":
+                    route = "top_down_only"
+                elif img_type == "detail" and bg not in ("clean", "white", ""):
                     route = "claid_only"
                 elif img_type == "detail":
                     route = "detail_bg_only"
                 else:
                     route = "full_shadow"
-                routing_info = {"route": route, "image_type": img_type, "background": bg}
+                _performed_map = {
+                    "full_shadow":    ["누끼", "그림자"],
+                    "detail_bg_only": ["누끼"],
+                    "claid_only":     [],
+                    "top_down_only":  [],
+                }
+                performed = _performed_map.get(route, [])
+                routing_info = {
+                    "route": route, "image_type": img_type, "background": bg,
+                    "shooting_angle": shooting_angle, "performed": performed,
+                }
                 if 0 <= vf_idx < len(self._viewfinder_pairs):
                     self._viewfinder_pairs[vf_idx]["routing_info"] = routing_info
                 if fname in self._vf_file_stages:
@@ -5265,8 +5278,27 @@ class App(tk.Tk):
             val_icons = row_info.get("val_icons", {})
 
             lbl_result = row_info.get("lbl_result")
-            _route_text  = {"full_shadow": "전체컷", "detail_bg_only": "디테일(흰배경)", "claid_only": "배경없는 디테일"}
-            _route_color = {"full_shadow": "#3b82f6", "detail_bg_only": "#d97706",      "claid_only": "#16a34a"}
+            _route_text  = {
+                "full_shadow":    "전체컷",
+                "detail_bg_only": "디테일(흰배경)",
+                "claid_only":     "배경없는 디테일",
+                "top_down_only":  "수직촬영",
+            }
+            _route_color = {
+                "full_shadow":    "#3b82f6",
+                "detail_bg_only": "#d97706",
+                "claid_only":     "#16a34a",
+                "top_down_only":  "#7c3aed",
+            }
+
+            def _route_label(ri):
+                """라우트명 + 수행된 작업 배지 텍스트 반환."""
+                if not ri:
+                    return "완료", VF_GREEN
+                route = ri.get("route", "")
+                performed = ri.get("performed", [])
+                ops = ("  " + "  ".join(f"[{op}]" for op in performed)) if performed else ""
+                return _route_text.get(route, "완료") + ops, _route_color.get(route, VF_GREEN)
 
             if status == "processing":
                 row_info["lbl_stage_text"].config(
@@ -5280,10 +5312,8 @@ class App(tk.Tk):
             elif status == "done" and validation:
                 # 완료 + 검증 결과: 라우팅 텍스트(좌) + 검증 아이콘
                 ri = self._vf_file_stages.get(fname, {}).get("routing_info")
-                route = ri.get("route", "") if ri else ""
-                row_info["lbl_stage_text"].config(
-                    text=_route_text.get(route, "완료"),
-                    fg=_route_color.get(route, VF_GREEN))
+                txt, clr = _route_label(ri)
+                row_info["lbl_stage_text"].config(text=txt, fg=clr)
                 row_info["lbl_stage_text"].pack(side="left")
                 for key, label in [("background", "배경"), ("shadow", "그림자"), ("integrity", "원형")]:
                     lbl = val_icons.get(key)
@@ -5299,10 +5329,8 @@ class App(tk.Tk):
                     lbl_result.config(text="성공", fg=VF_GREEN)
             elif status == "done":
                 ri = self._vf_file_stages.get(fname, {}).get("routing_info")
-                route = ri.get("route", "") if ri else ""
-                row_info["lbl_stage_text"].config(
-                    text=_route_text.get(route, "완료"),
-                    fg=_route_color.get(route, VF_GREEN))
+                txt, clr = _route_label(ri)
+                row_info["lbl_stage_text"].config(text=txt, fg=clr)
                 row_info["lbl_stage_text"].pack(side="left")
                 if lbl_result:
                     lbl_result.config(text="성공", fg=VF_GREEN)
@@ -5496,9 +5524,10 @@ class App(tk.Tk):
         lbl_routing.pack(side="left")
 
         _ROUTE_STYLES = {
-            "full_shadow":    ("\U0001f535 전체컷  →  배경제거 + 그림자 + Claid", "#3b82f6"),
-            "detail_bg_only": ("\U0001f7e1 디테일컷 (흰배경)  →  배경제거만 + Claid",   "#d97706"),
-            "claid_only":     ("\U0001f7e2 배경없는 디테일컷  →  Claid 보정만",         "#16a34a"),
+            "full_shadow":    ("\U0001f535 전체컷  →  누끼 + 그림자 + 보정",              "#3b82f6"),
+            "detail_bg_only": ("\U0001f7e1 디테일컷 (흰배경)  →  누끼 + 보정",           "#d97706"),
+            "claid_only":     ("\U0001f7e2 배경없는 디테일컷  →  보정만",                "#16a34a"),
+            "top_down_only":  ("\U0001f7e3 수직촬영(탑다운)  →  보정만  (누끼·그림자 제외)", "#7c3aed"),
         }
 
         def _update_routing_display(pair):
@@ -5512,7 +5541,9 @@ class App(tk.Tk):
             bg_val = ri.get("background", "")
             img_t = ri.get("image_type", "")
             detail = f"  ({img_t} / bg={bg_val})" if img_t else ""
-            lbl_routing.config(text=text + detail, fg=color)
+            performed = ri.get("performed", [])
+            ops_text = ("  ▶ " + " · ".join(performed)) if performed else ""
+            lbl_routing.config(text=text + detail + ops_text, fg=color)
             routing_row.pack(fill="x", padx=12, pady=(2, 0))
 
         def _update_vision_display(pair):
