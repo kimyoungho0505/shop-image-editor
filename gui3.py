@@ -489,7 +489,7 @@ def save_yaml(path, data):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("LUXBOY 설정 및 임시옵션 - gui3")
+        self.title("LUXBOY 메인 - gui3")
         self.geometry("1100x850")
         self.configure(bg=BG_COLOR)
         self.minsize(900, 700)
@@ -565,13 +565,13 @@ class App(tk.Tk):
         self.var_shadow_judge = tk.StringVar(value="auto")
         self.var_shadow_composite = tk.StringVar(value="overlay")
 
+        self.tab_temp_options = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_temp_options, text="  메인  ")
+        self._build_temp_options_tab()
+
         self.tab_settings = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_settings, text="  설정  ")
         self._build_settings_tab()
-
-        self.tab_temp_options = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_temp_options, text="  임시 옵션  ")
-        self._build_temp_options_tab()
 
         self.status_bar = ttk.Label(self, text="준비 완료", relief="sunken", anchor="w",
                                     font=(FONT_FAMILY, 9))
@@ -1404,7 +1404,6 @@ class App(tk.Tk):
                                bg=CARD_BG, fg="#555", padx=10, pady=6)
         info_f.pack(fill="x", padx=12, pady=(10, 6))
         tk.Label(info_f, text=(
-            "이 탭은 테스트용 임시 옵션입니다.\n"
             "포토룸 배경+그림자 통합방식: 배경 제거와 AI 그림자를 하나의 API 호출로 처리 후 Claid 보정만 수행합니다."
         ), bg=CARD_BG, fg="#444", font=(FONT_FAMILY, 9), justify="left").pack(anchor="w")
 
