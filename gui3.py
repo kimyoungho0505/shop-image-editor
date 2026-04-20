@@ -566,6 +566,10 @@ class App(tk.Tk):
         self.notebook.add(self.tab_temp_options, text="  메인  ")
         self._build_temp_options_tab()
 
+        self.tab_conditions = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_conditions, text="  조건  ")
+        self._build_conditions_tab()
+
         self.tab_settings = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_settings, text="  설정  ")
         self._build_settings_tab()
@@ -573,6 +577,142 @@ class App(tk.Tk):
         self.status_bar = ttk.Label(self, text="준비 완료", relief="sunken", anchor="w",
                                     font=(FONT_FAMILY, 9))
         self.status_bar.pack(fill="x", padx=10, pady=(5, 10))
+
+    # ── 조건 탭 ──
+    def _build_conditions_tab(self):
+        parent = self.tab_conditions
+        canvas = tk.Canvas(parent, bg=BG_COLOR, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+        scroll_frame.bind("<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        scrollbar.pack(side="right", fill="y", pady=10)
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>",
+            lambda ev: canvas.yview_scroll(int(-1*(ev.delta/120)), "units")))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        sf = scroll_frame
+
+        # ── 안내 ──
+        desc_lf = tk.LabelFrame(sf, text=" 처리 라우팅 조건 ",
+                                font=(FONT_FAMILY, 11, "bold"),
+                                bg=CARD_BG, fg="#374151", padx=12, pady=8)
+        desc_lf.pack(fill="x", pady=(0, 10))
+        tk.Label(desc_lf,
+                 text="Vision AI가 이미지를 분석한 결과(이미지 종류·배경·촬영각도)에 따라 아래 조건 순서대로 처리 경로가 결정됩니다.",
+                 bg=CARD_BG, fg="#555", font=(FONT_FAMILY, 9), justify="left", wraplength=700
+                 ).pack(anchor="w")
+
+        # 조건 데이터: (우선순위, 색상, 제목, 조건설명, 처리내용, 상세설명)
+        routes = [
+            (
+                "1",
+                "#6b7280",
+                "⚪  라벨/바코드컷  →  처리 없음",
+                "is_label_cut = True",
+                "원본 파일 그대로 저장 (누끼·그림자·보정 전부 생략)",
+                "가방 내부 브랜드 태그, 바코드 스티커, 시리얼 번호 등\n모델명 확인용 클로즈업 이미지 — 편집 불필요"
+            ),
+            (
+                "2",
+                "#7c3aed",
+                "🟣  수직촬영(탑다운)  →  보정만",
+                "shooting_angle = \"top_down\"",
+                "Claid 보정만 수행 (누끼·그림자 생략)",
+                "위에서 수직으로 내려다본 탑다운 촬영 이미지\n배경 제거 시 제품 경계가 불명확해지므로 보정만 적용"
+            ),
+            (
+                "3",
+                "#16a34a",
+                "🟢  배경없는 디테일컷  →  보정만",
+                "image_type = \"detail\"  AND  background ∈ (clean, white, \"\")",
+                "Claid 보정만 수행 (누끼·그림자 생략)",
+                "흰색/깨끗한 배경에서 찍은 디테일컷\n이미 배경이 없거나 흰배경이므로 배경 제거 불필요"
+            ),
+            (
+                "4",
+                "#d97706",
+                "🟡  디테일컷 (유색배경)  →  누끼만",
+                "image_type = \"detail\"  AND  background ∉ (clean, white, \"\")",
+                "배경 제거(누끼)만 수행, 그림자 생략 후 Claid 보정",
+                "유색 배경 앞에서 찍은 디테일컷\n그림자 없이 배경만 제거하여 흰배경으로 전환"
+            ),
+            (
+                "5",
+                "#3b82f6",
+                "🔵  전체컷 (풀샷)  →  누끼 + 그림자 + 보정",
+                "그 외 모든 이미지 (image_type = \"full\" 등)",
+                "배경 제거(누끼) → Photoroom AI 그림자 → Claid 보정",
+                "제품 전체가 보이는 메인컷\n가장 완전한 처리 파이프라인 적용"
+            ),
+        ]
+
+        for pri, color, title, condition, processing, detail in routes:
+            card = tk.Frame(sf, bg=CARD_BG, relief="solid", bd=1,
+                            highlightbackground="#e5e7eb", highlightthickness=1)
+            card.pack(fill="x", pady=(0, 8), ipady=2)
+
+            # 헤더 (색상 바 + 제목)
+            header = tk.Frame(card, bg=color, height=3)
+            header.pack(fill="x")
+
+            title_f = tk.Frame(card, bg=CARD_BG, padx=12, pady=6)
+            title_f.pack(fill="x")
+            tk.Label(title_f, text=f"우선순위 {pri}",
+                     bg=CARD_BG, fg=color, font=(FONT_FAMILY, 8, "bold")).pack(side="left", padx=(0, 10))
+            tk.Label(title_f, text=title,
+                     bg=CARD_BG, fg="#111827", font=(FONT_FAMILY, 10, "bold")).pack(side="left")
+
+            body = tk.Frame(card, bg=CARD_BG, padx=14, pady=4)
+            body.pack(fill="x", pady=(0, 4))
+
+            # 조건
+            cond_f = tk.Frame(body, bg="#f3f4f6", relief="flat", bd=0, padx=8, pady=4)
+            cond_f.pack(fill="x", pady=(0, 4))
+            tk.Label(cond_f, text="조건", bg="#f3f4f6", fg="#6b7280",
+                     font=(FONT_FAMILY, 8, "bold"), width=6, anchor="w").pack(side="left")
+            tk.Label(cond_f, text=condition, bg="#f3f4f6", fg="#1f2937",
+                     font=("Consolas", 9)).pack(side="left", padx=(4, 0))
+
+            # 처리
+            proc_f = tk.Frame(body, bg=CARD_BG, pady=2)
+            proc_f.pack(fill="x")
+            tk.Label(proc_f, text="처리", bg=CARD_BG, fg="#6b7280",
+                     font=(FONT_FAMILY, 8, "bold"), width=6, anchor="w").pack(side="left")
+            tk.Label(proc_f, text=processing, bg=CARD_BG, fg=color,
+                     font=(FONT_FAMILY, 9, "bold")).pack(side="left", padx=(4, 0))
+
+            # 상세
+            detail_f = tk.Frame(body, bg=CARD_BG, pady=2)
+            detail_f.pack(fill="x")
+            tk.Label(detail_f, text="설명", bg=CARD_BG, fg="#6b7280",
+                     font=(FONT_FAMILY, 8, "bold"), width=6, anchor="nw").pack(side="left")
+            tk.Label(detail_f, text=detail, bg=CARD_BG, fg="#6b7280",
+                     font=(FONT_FAMILY, 9), justify="left", anchor="w").pack(side="left", padx=(4, 0))
+
+        # ── 플로우차트 텍스트 ──
+        flow_lf = tk.LabelFrame(sf, text=" 판단 흐름 ",
+                                font=(FONT_FAMILY, 11, "bold"),
+                                bg=CARD_BG, fg="#374151", padx=12, pady=8)
+        flow_lf.pack(fill="x", pady=(0, 10))
+        flow_text = (
+            "이미지 입력\n"
+            "    │\n"
+            "    ├─ 라벨/바코드컷? ──────────────► ⚪ 처리 없음 (원본 저장)\n"
+            "    │\n"
+            "    ├─ 수직촬영(탑다운)? ────────────► 🟣 보정만 (Claid)\n"
+            "    │\n"
+            "    ├─ 디테일컷 + 흰/깨끗한 배경? ───► 🟢 보정만 (Claid)\n"
+            "    │\n"
+            "    ├─ 디테일컷 + 유색 배경? ────────► 🟡 누끼 + 보정\n"
+            "    │\n"
+            "    └─ 그 외 (전체컷 등) ────────────► 🔵 누끼 + 그림자 + 보정"
+        )
+        tk.Label(flow_lf, text=flow_text, bg=CARD_BG, fg="#374151",
+                 font=("Consolas", 10), justify="left", anchor="w").pack(anchor="w")
 
     def _build_settings_tab(self):
         parent = self.tab_settings
