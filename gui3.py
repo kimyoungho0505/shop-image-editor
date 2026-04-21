@@ -6,6 +6,11 @@ import subprocess
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext, simpledialog
+try:
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+    _DND_AVAILABLE = True
+except ImportError:
+    _DND_AVAILABLE = False
 from pathlib import Path
 from datetime import datetime
 
@@ -486,7 +491,7 @@ def save_yaml(path, data):
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
-class App(tk.Tk):
+class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("LUXBOY 메인 - gui3")
@@ -507,6 +512,12 @@ class App(tk.Tk):
         self._build_ui()
         self._load_configs()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _restart_app(self):
+        self._save_state()
+        self.destroy()
+        import subprocess as _sp
+        _sp.Popen([sys.executable, __file__])
 
     def _load_state(self):
         self._state = {}
@@ -574,9 +585,13 @@ class App(tk.Tk):
         self.notebook.add(self.tab_settings, text="  설정  ")
         self._build_settings_tab()
 
-        self.status_bar = ttk.Label(self, text="준비 완료", relief="sunken", anchor="w",
+        bottom_bar = tk.Frame(self, bg=BG_COLOR)
+        bottom_bar.pack(fill="x", padx=10, pady=(5, 10))
+        self.status_bar = ttk.Label(bottom_bar, text="준비 완료", relief="sunken", anchor="w",
                                     font=(FONT_FAMILY, 9))
-        self.status_bar.pack(fill="x", padx=10, pady=(5, 10))
+        self.status_bar.pack(side="left", fill="x", expand=True)
+        ttk.Button(bottom_bar, text="🔄 재시작", width=8,
+                   command=self._restart_app).pack(side="right", padx=(6, 0))
 
     # ── 조건 탭 ──
     # ── 조건 탭 ──
@@ -1171,17 +1186,18 @@ class App(tk.Tk):
         self.var_unified_input = tk.StringVar(value=_init_input)
         self.var_unified_output = tk.StringVar(value=_init_output)
 
-        for r, (lbl, var, browse_cmd, open_cmd) in enumerate([
+        for r, (lbl, var, browse_cmd, open_cmd, is_inp) in enumerate([
             ("입력", self.var_unified_input,
-             self._browse_unified_input, self._open_unified_input_folder),
+             self._browse_unified_input, self._open_unified_input_folder, True),
             ("출력", self.var_unified_output,
-             self._browse_unified_output, self._open_unified_output_folder),
+             self._browse_unified_output, self._open_unified_output_folder, False),
         ]):
             ttk.Label(folder_card, text=lbl, style="Card.TLabel",
                       font=(FONT_FAMILY, 10, "bold"), width=4).grid(
                 row=r, column=0, sticky="w", padx=(12, 4), pady=6)
             e = ttk.Entry(folder_card, textvariable=var, font=(FONT_FAMILY, 10))
             e.grid(row=r, column=1, sticky="ew", padx=0, pady=6)
+            self._register_drop(e, var, is_input=is_inp)
             bf = ttk.Frame(folder_card, style="Card.TFrame")
             bf.grid(row=r, column=2, padx=(4, 8), pady=6)
             ttk.Button(bf, text="...", width=3, command=browse_cmd).pack(side="left", padx=(0, 2))
@@ -1881,6 +1897,31 @@ class App(tk.Tk):
         self.entry_xai_key.config(show="" if self.var_show_xai_key.get() else "*")
 
     # ── 폴더 ──
+    def _register_drop(self, entry_widget, var, is_input=False):
+        """Entry 위젯에 폴더/파일 드래그앤드롭 등록."""
+        if not _DND_AVAILABLE:
+            return
+        def _on_drop(event):
+            raw = event.data.strip()
+            # tkinterdnd2 는 중괄호로 묶인 경로를 반환할 수 있음
+            if raw.startswith("{") and raw.endswith("}"):
+                raw = raw[1:-1]
+            # 여러 항목이면 첫 번째만 사용
+            path = raw.split("} {")[0].strip()
+            p = Path(path)
+            # 파일이 드롭되면 부모 폴더 사용
+            folder = str(p.parent) if p.is_file() else str(p)
+            var.set(folder)
+            if is_input:
+                out = Path(folder) / "OUTPUT"
+                out.mkdir(parents=True, exist_ok=True)
+                self.var_unified_output.set(str(out))
+        entry_widget.drop_target_register(DND_FILES)
+        entry_widget.dnd_bind("<<Drop>>", _on_drop)
+        entry_widget.config(
+            foreground="#374151" if not _DND_AVAILABLE else "#374151"
+        )
+
     def _browse_unified_input(self):
         folder = filedialog.askdirectory(title="입력 이미지 폴더 선택", parent=self)
         if folder:
