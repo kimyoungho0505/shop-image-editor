@@ -1,6 +1,6 @@
 # LUXBOY Shop Image Editor - 개발 히스토리
 
-> 마지막 업데이트: 2026-04-21 (8차)
+> 마지막 업데이트: 2026-04-22 (9차)
 > 다른 PC에서 이어서 개발할 때 이 문서를 참고하세요.
 
 ---
@@ -684,3 +684,49 @@ python gui3.py
 | gui3.py | 메인탭 이름·순서, 설정탭 불필요 섹션 제거, 조건탭 편집 UI |
 | src/pipeline.py | routing_rules 파라미터 + 플래그 기반 처리 분기 리팩터 |
 | config/routing_rules.yaml | 새로 생성 (기본 라우팅 규칙 5개) |
+
+---
+
+## 2026년 4월 22일 업데이트 (9차)
+
+### 🖱️ Treeview 폴더 선택·삭제 수정
+
+- `Button-1` 바인딩에 `add="+"` 추가 → 기본 선택 동작 보존 (클릭 시 행 선택 정상 작동)
+- `<Delete>` 키 바인딩 추가 → 선택된 폴더 행 삭제 가능
+
+### ✅ 완료 컬럼 추가 — 로그 파일 기반 진행 추적
+
+#### 구조
+- Treeview 컬럼: `폴더 경로 / 이미지 / 완료 / 열기` (기존 3열 → 4열)
+- 완료 수 판단 기준: `{입력폴더}/OUTPUT/.shop_progress.json` (Option B 선택)
+
+#### `src/pipeline.py` — `_update_progress_log()` 추가
+모듈 최상단에 추가된 독립 함수:
+- 처리 성공 시 `completed` 목록에 원본 파일명 추가
+- 처리 실패 시 `failed` 목록에 추가
+- 재처리 성공 시 `failed` → `completed` 자동 이전
+- `process_single_unified_photoroom()` 저장 직후 / 예외 시 자동 호출
+
+`.shop_progress.json` 구조:
+```json
+{
+  "last_updated": "2026-04-22 14:30:00",
+  "completed": ["IMG_001.jpg", "IMG_002.jpg"],
+  "failed": ["IMG_005.jpg"]
+}
+```
+
+#### `gui3.py` — Treeview 완료 컬럼 표시
+| 시점 | 동작 |
+|------|------|
+| 폴더 추가 시 | 기존 `.shop_progress.json` 읽어 완료 수 즉시 표시 |
+| 파일 1개 처리 완료 시 | 해당 폴더 행 완료 수 실시간 업데이트 (`self.after(0, ...)`) |
+| 전체 처리 종료 시 | 모든 폴더 완료 수 최종 갱신 |
+- 완료 수 0이면 `-` 표시, 1 이상이면 `N장` 표시
+- 앱 재시작 후에도 이전 처리 결과 유지 (파일 기반)
+
+### 📊 변경사항 요약
+| 항목 | 수정 내용 |
+|------|---------|
+| gui3.py | Treeview 선택·Delete 수정, 완료 컬럼 추가, 실시간 업데이트 |
+| src/pipeline.py | `_update_progress_log()` 추가, 처리 결과 자동 기록 |
