@@ -1288,7 +1288,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self.tv_folders.pack(side="left", fill="both", expand=True)
         tv_scroll.pack(side="right", fill="y")
 
-        # 열기 컬럼 클릭 → 해당 폴더 열기
+        # 열기 컬럼 클릭 → 해당 폴더 열기 (add="+" 로 기본 선택 동작 유지)
         def _on_tv_click(event):
             region = self.tv_folders.identify_region(event.x, event.y)
             col    = self.tv_folders.identify_column(event.x)
@@ -1297,7 +1297,13 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 folder = self.tv_folders.set(iid, "path")
                 if Path(folder).is_dir():
                     os.startfile(folder)
-        self.tv_folders.bind("<Button-1>", _on_tv_click)
+        self.tv_folders.bind("<Button-1>", _on_tv_click, add="+")
+
+        # Delete 키로 선택 항목 삭제
+        def _on_tv_delete(event):
+            for iid in self.tv_folders.selection():
+                self.tv_folders.delete(iid)
+        self.tv_folders.bind("<Delete>", _on_tv_delete)
 
         # 이미지 갯수 계산 헬퍼
         _IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
