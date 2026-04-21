@@ -1175,77 +1175,15 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self.cat_status = ttk.Label(cat_btn, text="", style="TLabel")
         self.cat_status.pack(side="left", padx=15)
 
-    # ── 임시 옵션 탭 ──
+    # ── 메인 탭 ──
     def _build_temp_options_tab(self):
         parent = self.tab_temp_options
 
-        # ── 입력 폴더 목록 ──
-        folder_card = tk.LabelFrame(parent, text=" 입력 폴더 ", font=(FONT_FAMILY, 9, "bold"),
-                                    bg=CARD_BG, fg="#555", padx=10, pady=6)
-        folder_card.pack(fill="x", padx=12, pady=(0, 6))
-
-        # 폴더 목록 (Listbox)
-        lb_frame = tk.Frame(folder_card, bg=CARD_BG)
-        lb_frame.pack(fill="x")
-        lb_scroll = ttk.Scrollbar(lb_frame, orient="vertical")
-        self.lb_folders = tk.Listbox(
-            lb_frame, height=5, font=(FONT_FAMILY, 9),
-            selectmode="extended", yscrollcommand=lb_scroll.set,
-            bg="#f9fafb", fg="#111827", selectbackground="#3b82f6",
-            activestyle="none", relief="flat", borderwidth=1,
-            highlightthickness=1, highlightcolor="#d1d5db")
-        lb_scroll.config(command=self.lb_folders.yview)
-        self.lb_folders.pack(side="left", fill="x", expand=True)
-        lb_scroll.pack(side="right", fill="y")
-
-        # 드래그앤드롭 — Listbox에 등록
-        if _DND_AVAILABLE:
-            def _on_lb_drop(event):
-                raw = event.data.strip()
-                paths = []
-                # 중괄호 묶인 경로 파싱
-                import re as _re
-                for m in _re.finditer(r'\{([^}]+)\}|(\S+)', raw):
-                    p = m.group(1) or m.group(2)
-                    paths.append(p)
-                for p in paths:
-                    folder = str(Path(p).parent) if Path(p).is_file() else p
-                    existing = list(self.lb_folders.get(0, "end"))
-                    if folder not in existing:
-                        self.lb_folders.insert("end", folder)
-            self.lb_folders.drop_target_register(DND_FILES)
-            self.lb_folders.dnd_bind("<<Drop>>", _on_lb_drop)
-
-        # 초기값 복원 (저장된 전체 목록 우선, 없으면 단일 경로)
-        _saved_folders = self._state.get("input_folders", [])
-        if not _saved_folders and self._state.get("input_folder"):
-            _saved_folders = [self._state["input_folder"]]
-        for _f in _saved_folders:
-            if _f:
-                self.lb_folders.insert("end", _f)
-        self.var_unified_input = tk.StringVar(  # 하위 호환용
-            value=_saved_folders[0] if _saved_folders else "")
-
-        # 버튼 행
-        btn_row = tk.Frame(folder_card, bg=CARD_BG)
-        btn_row.pack(fill="x", pady=(4, 0))
-        ttk.Button(btn_row, text="+ 폴더 추가",
-                   command=self._browse_unified_input).pack(side="left", padx=(0, 4))
-        ttk.Button(btn_row, text="선택 삭제",
-                   command=lambda: [self.lb_folders.delete(i)
-                                    for i in reversed(self.lb_folders.curselection())]
-                   ).pack(side="left", padx=(0, 4))
-        ttk.Button(btn_row, text="전체 삭제",
-                   command=lambda: self.lb_folders.delete(0, "end")
-                   ).pack(side="left", padx=(0, 12))
-        ttk.Button(btn_row, text="출력폴더 열기",
-                   command=self._open_unified_output_folder).pack(side="left")
-
-        # ── 포토룸 배경+그림자 통합방식 ──
+        # ══ 상단: 포토룸 배경+그림자 통합방식 ══
         opt_frame = tk.LabelFrame(parent, text=" 포토룸 배경+그림자 통합방식 ",
                                   font=(FONT_FAMILY, 9, "bold"),
                                   bg=CARD_BG, fg="#1a6bb0", padx=10, pady=8)
-        opt_frame.pack(fill="x", padx=12, pady=(0, 8))
+        opt_frame.pack(fill="x", padx=12, pady=(10, 6))
 
         # Vision 프로바이더
         vision_row = ttk.Frame(opt_frame, style="Card.TFrame")
@@ -1259,11 +1197,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             ttk.Radiobutton(vision_row, text=txt,
                             variable=self.var_unified_vision,
                             value=val).pack(side="left", padx=4)
-        ttk.Label(vision_row, text="  ※ full→그림자/detail+흰배경→배경만/detail+유색배경→Claid만",
-                  style="Card.TLabel", font=(FONT_FAMILY, 8),
-                  foreground="#888").pack(side="left", padx=(8, 0))
 
-        # 그림자 모드 (full shot 적용)
+        # 그림자 모드
         shadow_row = ttk.Frame(opt_frame, style="Card.TFrame")
         shadow_row.pack(fill="x", pady=(0, 6))
         ttk.Label(shadow_row, text="그림자 모드", style="Card.TLabel",
@@ -1322,16 +1257,84 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                                                font=(FONT_FAMILY, 9))
         self.lbl_unified_progress.pack(side="left")
 
-        # 로그
+        # ══ 하단: 좌(입력폴더) + 우(로그) ══
+        bottom = tk.Frame(parent, bg=BG_COLOR)
+        bottom.pack(fill="both", expand=True, padx=12, pady=(4, 8))
+        bottom.columnconfigure(0, weight=1)
+        bottom.columnconfigure(1, weight=2)
+        bottom.rowconfigure(0, weight=1)
+
+        # ── 왼쪽: 입력 폴더 목록 ──
+        folder_card = tk.LabelFrame(bottom, text=" 입력 폴더 ", font=(FONT_FAMILY, 9, "bold"),
+                                    bg=CARD_BG, fg="#555", padx=8, pady=6)
+        folder_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+
+        lb_frame = tk.Frame(folder_card, bg=CARD_BG)
+        lb_frame.pack(fill="both", expand=True)
+        lb_scroll = ttk.Scrollbar(lb_frame, orient="vertical")
+        self.lb_folders = tk.Listbox(
+            lb_frame, font=(FONT_FAMILY, 9),
+            selectmode="extended", yscrollcommand=lb_scroll.set,
+            bg="#f9fafb", fg="#111827", selectbackground="#3b82f6",
+            activestyle="none", relief="flat", borderwidth=1,
+            highlightthickness=1, highlightcolor="#d1d5db")
+        lb_scroll.config(command=self.lb_folders.yview)
+        self.lb_folders.pack(side="left", fill="both", expand=True)
+        lb_scroll.pack(side="right", fill="y")
+
+        # 드래그앤드롭
+        if _DND_AVAILABLE:
+            def _on_lb_drop(event):
+                raw = event.data.strip()
+                import re as _re
+                paths = [m.group(1) or m.group(2)
+                         for m in _re.finditer(r'\{([^}]+)\}|(\S+)', raw)]
+                for p in paths:
+                    folder = str(Path(p).parent) if Path(p).is_file() else p
+                    if folder not in list(self.lb_folders.get(0, "end")):
+                        self.lb_folders.insert("end", folder)
+            self.lb_folders.drop_target_register(DND_FILES)
+            self.lb_folders.dnd_bind("<<Drop>>", _on_lb_drop)
+
+        # 초기값 복원
+        _saved_folders = self._state.get("input_folders", [])
+        if not _saved_folders and self._state.get("input_folder"):
+            _saved_folders = [self._state["input_folder"]]
+        for _f in _saved_folders:
+            if _f:
+                self.lb_folders.insert("end", _f)
+        self.var_unified_input = tk.StringVar(
+            value=_saved_folders[0] if _saved_folders else "")
+
+        # 버튼 행
+        btn_row = tk.Frame(folder_card, bg=CARD_BG)
+        btn_row.pack(fill="x", pady=(6, 0))
+        ttk.Button(btn_row, text="+ 추가",
+                   command=self._browse_unified_input).pack(side="left", padx=(0, 3))
+        ttk.Button(btn_row, text="삭제",
+                   command=lambda: [self.lb_folders.delete(i)
+                                    for i in reversed(self.lb_folders.curselection())]
+                   ).pack(side="left", padx=(0, 3))
+        ttk.Button(btn_row, text="전체삭제",
+                   command=lambda: self.lb_folders.delete(0, "end")
+                   ).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_row, text="출력열기",
+                   command=self._open_unified_output_folder).pack(side="left")
+
+        # ── 오른쪽: 로그 ──
+        log_card = tk.LabelFrame(bottom, text=" 로그 ", font=(FONT_FAMILY, 9, "bold"),
+                                 bg=CARD_BG, fg="#555", padx=0, pady=0)
+        log_card.grid(row=0, column=1, sticky="nsew")
+
         self.unified_log = scrolledtext.ScrolledText(
-            parent, height=16, font=("Consolas", 9),
+            log_card, font=("Consolas", 9),
             bg="#1e1e2e", fg="#cdd6f4", insertbackground="white",
             wrap="word", state="disabled", relief="flat", borderwidth=0)
-        self.unified_log.pack(fill="both", expand=True, padx=12, pady=(0, 8))
-        self.unified_log.tag_config("info", foreground="#89b4fa")
+        self.unified_log.pack(fill="both", expand=True, padx=2, pady=2)
+        self.unified_log.tag_config("info",    foreground="#89b4fa")
         self.unified_log.tag_config("success", foreground="#a6e3a1")
-        self.unified_log.tag_config("error", foreground="#f38ba8")
-        self.unified_log.tag_config("warn", foreground="#fab387")
+        self.unified_log.tag_config("error",   foreground="#f38ba8")
+        self.unified_log.tag_config("warn",    foreground="#fab387")
 
         self._unified_processing = False
 
