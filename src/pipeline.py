@@ -4871,7 +4871,7 @@ class ImageEditPipeline:
             # 저장
             output_path = Path(output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
-            namer = FileNamer(f"{idx:03d}")
+            namer = FileNamer(FileNamer.extract_base_from_path(image_path))
             file_name = namer.next_name(".jpg")
             file_path = output_path / file_name
             info = self._optimizer.save_from_bytes(current_bytes, str(file_path), max_size_kb)
