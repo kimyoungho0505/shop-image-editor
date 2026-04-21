@@ -1,10 +1,51 @@
 """전체 이미지 편집 파이프라인 오케스트레이터."""
+import json
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable
 
 import numpy as np
 import yaml
 from loguru import logger
+
+
+def _update_progress_log(output_dir: str, source_filename: str, success: bool) -> None:
+    """OUTPUT/.shop_progress.json 에 처리 결과를 기록한다.
+
+    Args:
+        output_dir:       출력 폴더 경로 (예: D:/photos/OUTPUT)
+        source_filename:  원본 파일명 (예: IMG_001.jpg)
+        success:          처리 성공 여부
+    """
+    try:
+        log_path = Path(output_dir) / ".shop_progress.json"
+        if log_path.exists():
+            try:
+                data = json.loads(log_path.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        else:
+            data = {}
+
+        data.setdefault("completed", [])
+        data.setdefault("failed", [])
+        data["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if success:
+            if source_filename not in data["completed"]:
+                data["completed"].append(source_filename)
+            # 재처리 성공 시 실패 목록에서 제거
+            data["failed"] = [f for f in data["failed"] if f != source_filename]
+        else:
+            if source_filename not in data["failed"]:
+                data["failed"].append(source_filename)
+
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception as e:
+        logger.warning(f"진행 로그 기록 실패: {e}")
 
 from .analyzer.vision_client import VisionClient
 from .analyzer.openai_vision_client import OpenAIVisionClient
@@ -4876,6 +4917,8 @@ class ImageEditPipeline:
             file_path = output_path / file_name
             info = self._optimizer.save_from_bytes(current_bytes, str(file_path), max_size_kb)
             _log(f"  출력: {file_name} ({info['size_kb']}KB)", "success")
+            # 진행 로그 기록 (성공)
+            _update_progress_log(output_dir, Path(image_path).name, True)
             return {
                 "success": True, "files": [info], "path": image_path,
                 "image_type": image_type, "background": background,
@@ -4887,6 +4930,11 @@ class ImageEditPipeline:
             import traceback
             _log(f"  오류: {e}", "error")
             _log(traceback.format_exc(), "error")
+            # 진행 로그 기록 (실패)
+            try:
+                _update_progress_log(output_dir, Path(image_path).name, False)
+            except Exception:
+                pass
             return {"success": False, "error": str(e), "path": image_path}
 
     def _check_detail_nukki_quality(self, result_bytes: bytes,

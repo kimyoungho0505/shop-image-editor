@@ -1270,20 +1270,22 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                                     bg=CARD_BG, fg="#555", padx=8, pady=6)
         folder_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
 
-        # Treeview (폴더경로 / 이미지수 / 열기)
+        # Treeview (폴더경로 / 이미지수 / 완료수 / 열기)
         tv_frame = tk.Frame(folder_card, bg=CARD_BG)
         tv_frame.pack(fill="both", expand=True)
         tv_scroll = ttk.Scrollbar(tv_frame, orient="vertical")
         self.tv_folders = ttk.Treeview(
-            tv_frame, columns=("path", "count", "open"),
+            tv_frame, columns=("path", "count", "done", "open"),
             show="headings", yscrollcommand=tv_scroll.set,
             selectmode="extended", height=8)
         tv_scroll.config(command=self.tv_folders.yview)
         self.tv_folders.heading("path",  text="폴더 경로")
         self.tv_folders.heading("count", text="이미지")
+        self.tv_folders.heading("done",  text="완료")
         self.tv_folders.heading("open",  text="열기")
-        self.tv_folders.column("path",  stretch=True,  minwidth=120, width=260)
-        self.tv_folders.column("count", stretch=False, minwidth=55,  width=55,  anchor="center")
+        self.tv_folders.column("path",  stretch=True,  minwidth=120, width=240)
+        self.tv_folders.column("count", stretch=False, minwidth=50,  width=50,  anchor="center")
+        self.tv_folders.column("done",  stretch=False, minwidth=50,  width=50,  anchor="center")
         self.tv_folders.column("open",  stretch=False, minwidth=46,  width=46,  anchor="center")
         self.tv_folders.pack(side="left", fill="both", expand=True)
         tv_scroll.pack(side="right", fill="y")
@@ -1293,7 +1295,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             region = self.tv_folders.identify_region(event.x, event.y)
             col    = self.tv_folders.identify_column(event.x)
             iid    = self.tv_folders.identify_row(event.y)
-            if region == "cell" and col == "#3" and iid:
+            if region == "cell" and col == "#4" and iid:
                 folder = self.tv_folders.set(iid, "path")
                 if Path(folder).is_dir():
                     os.startfile(folder)
@@ -1314,13 +1316,29 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             except Exception:
                 return 0
 
+        # 완료 갯수 읽기 헬퍼 — OUTPUT/.shop_progress.json 기반
+        def _read_folder_done_count(folder):
+            import json as _json
+            log_path = Path(folder) / "OUTPUT" / ".shop_progress.json"
+            if not log_path.exists():
+                return 0
+            try:
+                data = _json.loads(log_path.read_text(encoding="utf-8"))
+                return len(data.get("completed", []))
+            except Exception:
+                return 0
+
+        self._read_folder_done_count = _read_folder_done_count  # 외부 접근용
+
         # 폴더 추가 헬퍼
         def _add_folder_to_tv(folder):
             existing = [self.tv_folders.set(i, "path")
                         for i in self.tv_folders.get_children()]
             if folder not in existing:
-                cnt = _count_images(folder)
-                self.tv_folders.insert("", "end", values=(folder, f"{cnt}장", "📂"))
+                cnt  = _count_images(folder)
+                done = _read_folder_done_count(folder)
+                done_str = f"{done}장" if done > 0 else "-"
+                self.tv_folders.insert("", "end", values=(folder, f"{cnt}장", done_str, "📂"))
 
         self._add_folder_to_tv = _add_folder_to_tv  # 외부 메서드에서 사용
 
@@ -1520,6 +1538,15 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 self._log_unified(f"[{fname}] ✓ 완료 ({completed[0]}/{total})", "success")
             else:
                 self._log_unified(f"[{fname}] ✗ 실패: {result.get('error','')} ({completed[0]}/{total})", "error")
+            # Treeview "완료" 컬럼 실시간 업데이트 (메인 스레드에서)
+            img_folder = str(Path(img_path).parent)
+            def _refresh_done_col(_folder=img_folder):
+                for _iid in self.tv_folders.get_children():
+                    if self.tv_folders.set(_iid, "path") == _folder:
+                        _done = self._read_folder_done_count(_folder)
+                        self.tv_folders.set(_iid, "done", f"{_done}장")
+                        break
+            self.after(0, _refresh_done_col)
 
         def _worker():
             try:
@@ -1556,6 +1583,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self.lbl_unified_progress.config(text="완료")
         if self._viewfinder_pairs:
             self.btn_unified_vf.config(state="normal")
+        # 모든 폴더 완료 수 최종 갱신
+        if hasattr(self, "tv_folders") and hasattr(self, "_read_folder_done_count"):
+            for iid in self.tv_folders.get_children():
+                folder = self.tv_folders.set(iid, "path")
+                done = self._read_folder_done_count(folder)
+                self.tv_folders.set(iid, "done", f"{done}장" if done > 0 else "-")
 
     def _on_cat_double_click(self, event):
         item = self.cat_tree.identify_row(event.y)
