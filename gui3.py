@@ -530,9 +530,10 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
     def _save_state(self):
         try:
-            # Listbox 폴더 목록 저장
-            if hasattr(self, "lb_folders"):
-                folders = list(self.lb_folders.get(0, "end"))
+            # Treeview 폴더 목록 저장
+            if hasattr(self, "tv_folders"):
+                folders = [self.tv_folders.set(i, "path")
+                           for i in self.tv_folders.get_children()]
                 self._state["input_folder"] = folders[0] if folders else ""
                 self._state["input_folders"] = folders
             with open(str(GUI_STATE_PATH), "w", encoding="utf-8") as f:
@@ -1269,32 +1270,66 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                                     bg=CARD_BG, fg="#555", padx=8, pady=6)
         folder_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
 
-        lb_frame = tk.Frame(folder_card, bg=CARD_BG)
-        lb_frame.pack(fill="both", expand=True)
-        lb_scroll = ttk.Scrollbar(lb_frame, orient="vertical")
-        self.lb_folders = tk.Listbox(
-            lb_frame, font=(FONT_FAMILY, 9),
-            selectmode="extended", yscrollcommand=lb_scroll.set,
-            bg="#f9fafb", fg="#111827", selectbackground="#3b82f6",
-            activestyle="none", relief="flat", borderwidth=1,
-            highlightthickness=1, highlightcolor="#d1d5db")
-        lb_scroll.config(command=self.lb_folders.yview)
-        self.lb_folders.pack(side="left", fill="both", expand=True)
-        lb_scroll.pack(side="right", fill="y")
+        # Treeview (폴더경로 / 이미지수 / 열기)
+        tv_frame = tk.Frame(folder_card, bg=CARD_BG)
+        tv_frame.pack(fill="both", expand=True)
+        tv_scroll = ttk.Scrollbar(tv_frame, orient="vertical")
+        self.tv_folders = ttk.Treeview(
+            tv_frame, columns=("path", "count", "open"),
+            show="headings", yscrollcommand=tv_scroll.set,
+            selectmode="extended", height=8)
+        tv_scroll.config(command=self.tv_folders.yview)
+        self.tv_folders.heading("path",  text="폴더 경로")
+        self.tv_folders.heading("count", text="이미지")
+        self.tv_folders.heading("open",  text="열기")
+        self.tv_folders.column("path",  stretch=True,  minwidth=120, width=260)
+        self.tv_folders.column("count", stretch=False, minwidth=55,  width=55,  anchor="center")
+        self.tv_folders.column("open",  stretch=False, minwidth=46,  width=46,  anchor="center")
+        self.tv_folders.pack(side="left", fill="both", expand=True)
+        tv_scroll.pack(side="right", fill="y")
+
+        # 열기 컬럼 클릭 → 해당 폴더 열기
+        def _on_tv_click(event):
+            region = self.tv_folders.identify_region(event.x, event.y)
+            col    = self.tv_folders.identify_column(event.x)
+            iid    = self.tv_folders.identify_row(event.y)
+            if region == "cell" and col == "#3" and iid:
+                folder = self.tv_folders.set(iid, "path")
+                if Path(folder).is_dir():
+                    os.startfile(folder)
+        self.tv_folders.bind("<Button-1>", _on_tv_click)
+
+        # 이미지 갯수 계산 헬퍼
+        _IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+        def _count_images(folder):
+            try:
+                return sum(1 for f in Path(folder).iterdir()
+                           if f.suffix.lower() in _IMG_EXT)
+            except Exception:
+                return 0
+
+        # 폴더 추가 헬퍼
+        def _add_folder_to_tv(folder):
+            existing = [self.tv_folders.set(i, "path")
+                        for i in self.tv_folders.get_children()]
+            if folder not in existing:
+                cnt = _count_images(folder)
+                self.tv_folders.insert("", "end", values=(folder, f"{cnt}장", "📂"))
+
+        self._add_folder_to_tv = _add_folder_to_tv  # 외부 메서드에서 사용
 
         # 드래그앤드롭
         if _DND_AVAILABLE:
-            def _on_lb_drop(event):
+            def _on_tv_drop(event):
                 raw = event.data.strip()
                 import re as _re
                 paths = [m.group(1) or m.group(2)
                          for m in _re.finditer(r'\{([^}]+)\}|(\S+)', raw)]
                 for p in paths:
                     folder = str(Path(p).parent) if Path(p).is_file() else p
-                    if folder not in list(self.lb_folders.get(0, "end")):
-                        self.lb_folders.insert("end", folder)
-            self.lb_folders.drop_target_register(DND_FILES)
-            self.lb_folders.dnd_bind("<<Drop>>", _on_lb_drop)
+                    _add_folder_to_tv(folder)
+            self.tv_folders.drop_target_register(DND_FILES)
+            self.tv_folders.dnd_bind("<<Drop>>", _on_tv_drop)
 
         # 초기값 복원
         _saved_folders = self._state.get("input_folders", [])
@@ -1302,7 +1337,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             _saved_folders = [self._state["input_folder"]]
         for _f in _saved_folders:
             if _f:
-                self.lb_folders.insert("end", _f)
+                _add_folder_to_tv(_f)
         self.var_unified_input = tk.StringVar(
             value=_saved_folders[0] if _saved_folders else "")
 
@@ -1312,11 +1347,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         ttk.Button(btn_row, text="+ 추가",
                    command=self._browse_unified_input).pack(side="left", padx=(0, 3))
         ttk.Button(btn_row, text="삭제",
-                   command=lambda: [self.lb_folders.delete(i)
-                                    for i in reversed(self.lb_folders.curselection())]
+                   command=lambda: [self.tv_folders.delete(i)
+                                    for i in self.tv_folders.selection()]
                    ).pack(side="left", padx=(0, 3))
         ttk.Button(btn_row, text="전체삭제",
-                   command=lambda: self.lb_folders.delete(0, "end")
+                   command=lambda: self.tv_folders.delete(*self.tv_folders.get_children())
                    ).pack(side="left", padx=(0, 8))
         ttk.Button(btn_row, text="출력열기",
                    command=self._open_unified_output_folder).pack(side="left")
@@ -1354,7 +1389,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self.after(0, _do)
 
     def _run_unified_photoroom(self, mode="batch"):
-        input_folders = list(self.lb_folders.get(0, "end"))
+        input_folders = [self.tv_folders.set(i, "path")
+                         for i in self.tv_folders.get_children()]
 
         if mode == "file":
             filetypes = [("이미지 파일", "*.jpg *.jpeg *.png *.bmp *.tiff *.webp"),
@@ -1966,19 +2002,17 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
     def _browse_unified_input(self):
         folder = filedialog.askdirectory(title="입력 이미지 폴더 선택", parent=self)
         if folder:
-            existing = list(self.lb_folders.get(0, "end"))
-            if folder not in existing:
-                self.lb_folders.insert("end", folder)
+            self._add_folder_to_tv(folder)
 
     def _open_unified_input_folder(self):
-        folders = list(self.lb_folders.get(0, "end"))
+        folders = [self.tv_folders.set(i, "path") for i in self.tv_folders.get_children()]
         if not folders:
             messagebox.showwarning("알림", "입력 폴더가 없습니다.")
             return
         os.startfile(folders[0])
 
     def _open_unified_output_folder(self):
-        folders = list(self.lb_folders.get(0, "end"))
+        folders = [self.tv_folders.set(i, "path") for i in self.tv_folders.get_children()]
         if not folders:
             messagebox.showwarning("알림", "입력 폴더를 먼저 선택하세요.")
             return
