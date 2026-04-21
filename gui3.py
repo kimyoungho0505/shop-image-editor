@@ -530,6 +530,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
     def _save_state(self):
         try:
+            # Listbox 폴더 목록 저장
+            if hasattr(self, "lb_folders"):
+                folders = list(self.lb_folders.get(0, "end"))
+                self._state["input_folder"] = folders[0] if folders else ""
+                self._state["input_folders"] = folders
             with open(str(GUI_STATE_PATH), "w", encoding="utf-8") as f:
                 json.dump(self._state, f, ensure_ascii=False, indent=2)
         except Exception:
@@ -1174,34 +1179,67 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
     def _build_temp_options_tab(self):
         parent = self.tab_temp_options
 
-        # ── 입력/출력 폴더 ──
-        folder_card = tk.LabelFrame(parent, text=" 폴더 ", font=(FONT_FAMILY, 9, "bold"),
+        # ── 입력 폴더 목록 ──
+        folder_card = tk.LabelFrame(parent, text=" 입력 폴더 ", font=(FONT_FAMILY, 9, "bold"),
                                     bg=CARD_BG, fg="#555", padx=10, pady=6)
         folder_card.pack(fill="x", padx=12, pady=(0, 6))
-        folder_card.columnconfigure(1, weight=1)
 
-        _init_input = self._state.get("input_folder", "")
-        _init_output = (str(Path(_init_input) / "OUTPUT") if _init_input
-                        else self._state.get("output_folder", str(APP_DIR / "output")))
-        self.var_unified_input = tk.StringVar(value=_init_input)
-        self.var_unified_output = tk.StringVar(value=_init_output)
+        # 폴더 목록 (Listbox)
+        lb_frame = tk.Frame(folder_card, bg=CARD_BG)
+        lb_frame.pack(fill="x")
+        lb_scroll = ttk.Scrollbar(lb_frame, orient="vertical")
+        self.lb_folders = tk.Listbox(
+            lb_frame, height=5, font=(FONT_FAMILY, 9),
+            selectmode="extended", yscrollcommand=lb_scroll.set,
+            bg="#f9fafb", fg="#111827", selectbackground="#3b82f6",
+            activestyle="none", relief="flat", borderwidth=1,
+            highlightthickness=1, highlightcolor="#d1d5db")
+        lb_scroll.config(command=self.lb_folders.yview)
+        self.lb_folders.pack(side="left", fill="x", expand=True)
+        lb_scroll.pack(side="right", fill="y")
 
-        for r, (lbl, var, browse_cmd, open_cmd, is_inp) in enumerate([
-            ("입력", self.var_unified_input,
-             self._browse_unified_input, self._open_unified_input_folder, True),
-            ("출력", self.var_unified_output,
-             self._browse_unified_output, self._open_unified_output_folder, False),
-        ]):
-            ttk.Label(folder_card, text=lbl, style="Card.TLabel",
-                      font=(FONT_FAMILY, 10, "bold"), width=4).grid(
-                row=r, column=0, sticky="w", padx=(12, 4), pady=6)
-            e = ttk.Entry(folder_card, textvariable=var, font=(FONT_FAMILY, 10))
-            e.grid(row=r, column=1, sticky="ew", padx=0, pady=6)
-            self._register_drop(e, var, is_input=is_inp)
-            bf = ttk.Frame(folder_card, style="Card.TFrame")
-            bf.grid(row=r, column=2, padx=(4, 8), pady=6)
-            ttk.Button(bf, text="...", width=3, command=browse_cmd).pack(side="left", padx=(0, 2))
-            ttk.Button(bf, text="열기", width=4, command=open_cmd).pack(side="left")
+        # 드래그앤드롭 — Listbox에 등록
+        if _DND_AVAILABLE:
+            def _on_lb_drop(event):
+                raw = event.data.strip()
+                paths = []
+                # 중괄호 묶인 경로 파싱
+                import re as _re
+                for m in _re.finditer(r'\{([^}]+)\}|(\S+)', raw):
+                    p = m.group(1) or m.group(2)
+                    paths.append(p)
+                for p in paths:
+                    folder = str(Path(p).parent) if Path(p).is_file() else p
+                    existing = list(self.lb_folders.get(0, "end"))
+                    if folder not in existing:
+                        self.lb_folders.insert("end", folder)
+            self.lb_folders.drop_target_register(DND_FILES)
+            self.lb_folders.dnd_bind("<<Drop>>", _on_lb_drop)
+
+        # 초기값 복원 (저장된 전체 목록 우선, 없으면 단일 경로)
+        _saved_folders = self._state.get("input_folders", [])
+        if not _saved_folders and self._state.get("input_folder"):
+            _saved_folders = [self._state["input_folder"]]
+        for _f in _saved_folders:
+            if _f:
+                self.lb_folders.insert("end", _f)
+        self.var_unified_input = tk.StringVar(  # 하위 호환용
+            value=_saved_folders[0] if _saved_folders else "")
+
+        # 버튼 행
+        btn_row = tk.Frame(folder_card, bg=CARD_BG)
+        btn_row.pack(fill="x", pady=(4, 0))
+        ttk.Button(btn_row, text="+ 폴더 추가",
+                   command=self._browse_unified_input).pack(side="left", padx=(0, 4))
+        ttk.Button(btn_row, text="선택 삭제",
+                   command=lambda: [self.lb_folders.delete(i)
+                                    for i in reversed(self.lb_folders.curselection())]
+                   ).pack(side="left", padx=(0, 4))
+        ttk.Button(btn_row, text="전체 삭제",
+                   command=lambda: self.lb_folders.delete(0, "end")
+                   ).pack(side="left", padx=(0, 12))
+        ttk.Button(btn_row, text="출력폴더 열기",
+                   command=self._open_unified_output_folder).pack(side="left")
 
         # ── 포토룸 배경+그림자 통합방식 ──
         opt_frame = tk.LabelFrame(parent, text=" 포토룸 배경+그림자 통합방식 ",
@@ -1313,34 +1351,38 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self.after(0, _do)
 
     def _run_unified_photoroom(self, mode="batch"):
-        output_dir = self.var_unified_output.get().strip() or str(APP_DIR / "output")
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        input_folders = list(self.lb_folders.get(0, "end"))
 
         if mode == "file":
             filetypes = [("이미지 파일", "*.jpg *.jpeg *.png *.bmp *.tiff *.webp"),
                          ("모든 파일", "*.*")]
-            current = self.var_unified_input.get().strip()
-            initial_dir = str(Path(current).parent) if current and Path(current).is_file() \
-                          else (current if current and Path(current).is_dir() else "")
+            init_dir = input_folders[0] if input_folders else ""
             filepaths = filedialog.askopenfilenames(
                 title="처리할 이미지 파일 선택 (여러 장 가능)",
-                filetypes=filetypes, initialdir=initial_dir or None, parent=self)
+                filetypes=filetypes, initialdir=init_dir or None, parent=self)
             if not filepaths:
                 return
             file_list = list(filepaths)
+            # 파일 선택 모드: 첫 파일의 부모 폴더/OUTPUT
+            output_dir = str(Path(file_list[0]).parent / "OUTPUT")
         else:
-            input_path = self.var_unified_input.get().strip()
-            if not input_path:
+            if not input_folders:
                 messagebox.showwarning("경고", "입력 폴더를 선택하세요.")
                 return
-            if not Path(input_path).is_dir():
-                messagebox.showerror("오류", f"입력 폴더가 존재하지 않습니다:\n{input_path}")
-                return
             from src.utils.image_io import get_image_files
-            file_list = get_image_files(input_path)
+            file_list = []
+            for folder in input_folders:
+                if not Path(folder).is_dir():
+                    messagebox.showerror("오류", f"폴더가 존재하지 않습니다:\n{folder}")
+                    return
+                file_list.extend(get_image_files(folder))
             if not file_list:
-                messagebox.showwarning("경고", "폴더에 이미지 파일이 없습니다.")
+                messagebox.showwarning("경고", "선택한 폴더에 이미지 파일이 없습니다.")
                 return
+            # 폴더 모드: 첫 번째 폴더/OUTPUT
+            output_dir = str(Path(input_folders[0]) / "OUTPUT")
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         # UI 초기화
         self._unified_processing = True
@@ -1912,10 +1954,6 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             # 파일이 드롭되면 부모 폴더 사용
             folder = str(p.parent) if p.is_file() else str(p)
             var.set(folder)
-            if is_input:
-                out = Path(folder) / "OUTPUT"
-                out.mkdir(parents=True, exist_ok=True)
-                self.var_unified_output.set(str(out))
         entry_widget.drop_target_register(DND_FILES)
         entry_widget.dnd_bind("<<Drop>>", _on_drop)
         entry_widget.config(
@@ -1925,35 +1963,27 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
     def _browse_unified_input(self):
         folder = filedialog.askdirectory(title="입력 이미지 폴더 선택", parent=self)
         if folder:
-            self.var_unified_input.set(folder)
-            out = Path(folder) / "OUTPUT"
-            out.mkdir(parents=True, exist_ok=True)
-            self.var_unified_output.set(str(out))
+            existing = list(self.lb_folders.get(0, "end"))
+            if folder not in existing:
+                self.lb_folders.insert("end", folder)
 
     def _open_unified_input_folder(self):
-        path = self.var_unified_input.get().strip()
-        if not path:
-            messagebox.showwarning("알림", "입력 경로가 설정되지 않았습니다.")
+        folders = list(self.lb_folders.get(0, "end"))
+        if not folders:
+            messagebox.showwarning("알림", "입력 폴더가 없습니다.")
             return
-        p = Path(path)
-        if p.is_file():
-            os.startfile(str(p.parent))
-        elif p.is_dir():
-            os.startfile(path)
-        else:
-            messagebox.showwarning("알림", "입력 경로가 존재하지 않습니다.")
-
-    def _browse_unified_output(self):
-        folder = filedialog.askdirectory(title="출력 폴더 선택", parent=self)
-        if folder:
-            self.var_unified_output.set(folder)
+        os.startfile(folders[0])
 
     def _open_unified_output_folder(self):
-        folder = self.var_unified_output.get().strip()
-        if folder and Path(folder).is_dir():
-            os.startfile(folder)
+        folders = list(self.lb_folders.get(0, "end"))
+        if not folders:
+            messagebox.showwarning("알림", "입력 폴더를 먼저 선택하세요.")
+            return
+        output = Path(folders[0]) / "OUTPUT"
+        if output.is_dir():
+            os.startfile(str(output))
         else:
-            messagebox.showwarning("알림", "출력 폴더가 존재하지 않습니다.")
+            messagebox.showwarning("알림", f"출력 폴더가 아직 없습니다:\n{output}")
 
     def _vf_make_log(self, fname, base_log=None):
         """stage 추적하는 로그 래퍼 생성"""
