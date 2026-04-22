@@ -897,6 +897,7 @@ class ImageEditPipeline:
         self._photoroom = PhotoroomClient()
         self._removebg = RemoveBgClient()
         self._claid = ClaidClient()
+        self._claid_no_credits = False   # True이면 이 세션에서 Claid 스킵
         self._opencv_enhance = OpenCVEnhancer()
         self._optimizer = ImageOptimizer()
         self._category_mgr = CategoryManager(str(Path(config_dir) / "categories.yaml"))
@@ -923,6 +924,29 @@ class ImageEditPipeline:
         self._shadow_judge_mode = self._settings.get("shadow_judge_mode", "auto")
         logger.info(f"파이프라인 초기화: 분석={self._vision_provider}, 배경제거={self._bg_provider}, "
                     f"보정={self._enhance_provider}, 그림자={self._shadow_provider} ({self._shadow_method})")
+
+    def _claid_process_safe(self, image_bytes: bytes, image_type: str,
+                            config: dict = None, fallback: bytes = None,
+                            on_log=None) -> bytes:
+        """Claid.ai 보정 호출 — 크레딧 부족/오류 시 fallback 반환."""
+        _log = on_log or (lambda msg, tag="info": None)
+        if self._claid_no_credits:
+            _log("  ⚠️ Claid 크레딧 없음 → 보정 스킵", "warn")
+            return fallback if fallback is not None else image_bytes
+        try:
+            result = self._claid.process(image_bytes, image_type, config=config)
+            if not result:
+                _log("  Claid 응답 없음 → fallback 사용", "warn")
+                return fallback if fallback is not None else image_bytes
+            return result
+        except RuntimeError as e:
+            msg = str(e)
+            if "402" in msg or "billing" in msg or "12017" in msg or "credits" in msg.lower():
+                self._claid_no_credits = True
+                _log("  ❌ Claid 크레딧 부족 — 이 세션에서 Claid 보정을 건너뜁니다", "warn")
+            else:
+                _log(f"  ❌ Claid 오류: {e}", "error")
+            return fallback if fallback is not None else image_bytes
 
     def _get_vision_client(self):
         if self._vision_client is None:
@@ -2077,10 +2101,13 @@ class ImageEditPipeline:
                 pass
             _log(f"  Claid.ai 보정 (hdr={claid_config.get('hdr', 20)}, "
                  f"sharpness={claid_config.get('sharpness', 15)})...")
-            claid_result = self._claid.process(current_bytes, image_type, config=claid_config)
+            claid_result = self._claid_process_safe(
+                current_bytes, image_type, config=claid_config,
+                fallback=current_bytes, on_log=_log)
+            if claid_result is not current_bytes:
+                edit_actions.append(f"Claid.ai: 색보정 ({image_type})")
+                _log(f"  Claid.ai 완료 ({len(claid_result) // 1024}KB)", "success")
             current_bytes = claid_result
-            edit_actions.append(f"Claid.ai: 색보정 ({image_type})")
-            _log(f"  Claid.ai 완료 ({len(current_bytes) // 1024}KB)", "success")
 
         # ★ 단계 이미지 저장: 보정 완료
         _stage_img("보정", current_bytes)
@@ -4858,11 +4885,10 @@ class ImageEditPipeline:
             elif not do_nukki and do_enhance:
                 # 보정만
                 _log("  [경로] 보정만 수행 (누끼 없음)", "info")
-                current_bytes = self._claid.process(image_bytes, image_type, config=claid_config)
-                if not current_bytes:
-                    current_bytes = image_bytes
-                    _log("  Claid 응답 없음 → 원본 그대로 사용", "warn")
-                else:
+                current_bytes = self._claid_process_safe(
+                    image_bytes, image_type, config=claid_config,
+                    fallback=image_bytes, on_log=_log)
+                if current_bytes is not image_bytes:
                     _log(f"  Claid 완료 ({len(current_bytes)//1024}KB)", "success")
 
             else:
@@ -4900,11 +4926,10 @@ class ImageEditPipeline:
                         else:
                             _log(f"  누끼 품질 불량 ({nukki_reason}) → 원본으로 대체 후 Claid", "warn")
                             claid_input = image_bytes
-                    current_bytes = self._claid.process(claid_input, image_type, config=claid_config)
-                    if not current_bytes:
-                        current_bytes = result_bytes
-                        _log("  Claid 응답 없음 → Photoroom 결과 사용", "warn")
-                    else:
+                    current_bytes = self._claid_process_safe(
+                        claid_input, image_type, config=claid_config,
+                        fallback=result_bytes, on_log=_log)
+                    if current_bytes is not result_bytes:
                         _log(f"  Claid 완료 ({len(current_bytes)//1024}KB)", "success")
                 else:
                     current_bytes = result_bytes
