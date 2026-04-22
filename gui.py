@@ -9,6 +9,12 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext, simpledialog
 from pathlib import Path
 from datetime import datetime
 
+try:
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+    _HAS_DND = True
+except ImportError:
+    _HAS_DND = False
+
 APP_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(APP_DIR))
 
@@ -486,7 +492,7 @@ def save_yaml(path, data):
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
-class App(tk.Tk):
+class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(WINDOW_TITLE)
@@ -633,6 +639,7 @@ class App(tk.Tk):
                 row=r, column=0, sticky="w", padx=(12, 4), pady=6)
             e = ttk.Entry(folder_card, textvariable=var, font=(FONT_FAMILY, 10))
             e.grid(row=r, column=1, sticky="ew", padx=0, pady=6)
+            self._bind_folder_drop(e, var)
             bf = ttk.Frame(folder_card, style="Card.TFrame")
             bf.grid(row=r, column=2, padx=(4, 8), pady=6)
             ttk.Button(bf, text="...", width=3, command=browse_cmd).pack(side="left", padx=(0, 2))
@@ -2168,6 +2175,7 @@ class App(tk.Tk):
                 row=r, column=0, sticky="w", padx=(12, 4), pady=6)
             e = ttk.Entry(folder_card, textvariable=var, font=(FONT_FAMILY, 10))
             e.grid(row=r, column=1, sticky="ew", padx=0, pady=6)
+            self._bind_folder_drop(e, var)
             bf = ttk.Frame(folder_card, style="Card.TFrame")
             bf.grid(row=r, column=2, padx=(4, 8), pady=6)
             ttk.Button(bf, text="...", width=3, command=browse_cmd).pack(side="left", padx=(0, 2))
@@ -3859,6 +3867,27 @@ class App(tk.Tk):
                 foreground=SUCCESS)
         except Exception as e:
             self.rb_status.config(text=f"저장 실패: {e}", foreground=DANGER)
+
+    # ── 드래그앤드롭 ──
+    def _bind_folder_drop(self, entry_widget, str_var):
+        """Entry 위젯에 폴더/파일 드래그앤드롭 바인딩."""
+        if not _HAS_DND:
+            return
+        def _on_drop(event):
+            raw = event.data.strip()
+            # Windows: 경로에 공백이 있으면 {}로 감싸짐 → 첫 번째 경로만 추출
+            if raw.startswith("{"):
+                raw = raw[1:raw.find("}")]
+            else:
+                raw = raw.split()[0]
+            path = Path(raw)
+            # 파일을 드롭하면 부모 폴더를 사용
+            if path.is_file():
+                path = path.parent
+            if path.is_dir():
+                str_var.set(str(path))
+        entry_widget.drop_target_register(DND_FILES)
+        entry_widget.dnd_bind("<<Drop>>", _on_drop)
 
     # ── 폴더 ──
     def _browse_input(self):
