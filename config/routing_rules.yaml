@@ -1,46 +1,61 @@
 rules:
-  - id: label_skip
-    name: "라벨/바코드컷"
-    conditions:
-      is_label_cut: true
-    processing:
-      nukki: false
-      shadow: false
-      enhance: false
-
-  - id: top_down_only
-    name: "수직촬영(탑다운)"
-    conditions:
-      shooting_angle: top_down
-    processing:
-      nukki: false
-      shadow: false
-      enhance: true
-
-  - id: detail_clean_bg
-    name: "디테일컷 (흰/깨끗한 배경)"
-    conditions:
-      image_type: detail
-      background_type: clean
-    processing:
-      nukki: true
-      shadow: false
-      enhance: true
-
-  - id: detail_colored_bg
-    name: "디테일컷 (유색 배경)"
-    conditions:
-      image_type: detail
-      background_type: colored
-    processing:
-      nukki: false
-      shadow: false
-      enhance: true
-
-  - id: full_shot
-    name: "전체컷 (기본)"
-    conditions: {}
-    processing:
-      nukki: true
-      shadow: true
-      enhance: true
+- conditions:
+    is_label_cut: true
+  id: label_skip
+  name: 라벨/바코드컷
+  processing:
+    enhance: false
+    nukki: false
+    shadow: false
+- conditions:
+    shooting_angle: top_down
+  id: top_down_only
+  name: 수직촬영(탑다운)
+  processing:
+    enhance: true
+    nukki: true
+    shadow: false
+- conditions:
+    background_type: clean
+    image_type: detail
+  id: detail_clean_bg
+  name: 디테일컷 (흰/깨끗한 배경)
+  processing:
+    enhance: true
+    nukki: true
+    shadow: false
+- conditions:
+    background_type: colored
+    image_type: detail
+  id: detail_colored_bg
+  name: 디테일컷 (유색 배경)
+  processing:
+    enhance: true
+    nukki: false
+    shadow: false
+- conditions: {}
+  id: full_shot
+  name: 전체컷 (기본)
+  processing:
+    enhance: true
+    nukki: true
+    shadow: true
+- conditions:
+    image_type: mannequin
+    is_label_cut: false
+    shooting_angle: front
+  id: rule_6
+  name: 마네킹 (정면)
+  processing:
+    enhance: true
+    nukki: true
+    shadow: false
+- conditions:
+    image_type: jewelry
+    is_label_cut: false
+  id: rule_7
+  name: 주얼리
+  processing:
+    enhance: true
+    nukki: true
+    shadow: true

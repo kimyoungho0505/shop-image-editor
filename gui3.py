@@ -809,8 +809,9 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             tk.Label(cond_row, text="이미지종류:", bg=CARD_BG, fg="#374151",
                      font=(FONT_FAMILY, 9)).grid(row=1, column=0, sticky="w", padx=(0,4), pady=2)
             ttk.Combobox(cond_row, textvariable=var_it,
-                         values=["any", "full", "detail", "worn", "package"],
-                         width=7, state="readonly", font=(FONT_FAMILY, 9)
+                         values=["any", "full", "detail", "worn",
+                                 "mannequin", "model", "jewelry", "package"],
+                         width=10, state="readonly", font=(FONT_FAMILY, 9)
                          ).grid(row=1, column=1, sticky="w", padx=(0,16), pady=2)
 
             # background_type
@@ -1071,7 +1072,9 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         }
         type_tooltips = {
             "full": "전체 상품 사진", "detail": "디테일컷 (클로즈업)",
-            "worn": "착용/모델 사진", "package": "패키지/박스",
+            "worn": "착용컷 (마네킹/모델 통합)", "package": "패키지/박스",
+            "mannequin": "마네킹컷 (worn + 마네킹 감지)", "model": "모델컷 (worn + 사람 모델)",
+            "jewelry": "주얼리 (반지/목걸이 등 카테고리 감지 기반)",
         }
         enhance_defaults = {
             "full":    {"hdr": "20", "sharpness": "15", "exposure": "0", "saturation": "0", "contrast": "0"},
@@ -1447,11 +1450,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             log_card, font=("Consolas", 9),
             bg="#1e1e2e", fg="#cdd6f4", insertbackground="white",
             wrap="word", state="disabled", relief="flat", borderwidth=0)
-        self.unified_log.pack(fill="both", expand=True, padx=2, pady=2)
         self.unified_log.tag_config("info",    foreground="#89b4fa")
         self.unified_log.tag_config("success", foreground="#a6e3a1")
         self.unified_log.tag_config("error",   foreground="#f38ba8")
         self.unified_log.tag_config("warn",    foreground="#fab387")
+        self.unified_log.pack(fill="both", expand=True, padx=2, pady=2)
 
         self._unified_processing = False
 
@@ -1539,7 +1542,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             with lock:
                 vf_idx = self._vf_register_file(img_path)
             try:
-                from src.pipeline import ImageEditPipeline, ClaidNoCreditError
+                from src.pipeline import (
+                    ImageEditPipeline, ClaidNoCreditError, PhotoroomNoCreditError)
                 pl = ImageEditPipeline(config_dir=str(CONFIG_DIR))
                 pl._vision_provider = vision_provider
                 result = pl.process_single_unified_photoroom(
@@ -1552,15 +1556,18 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     idx=idx,
                     routing_rules=self._routing_rules_data,
                 )
-            except ClaidNoCreditError as e:
-                # 크레딧 부족 → 처리 즉시 중단 + 팝업 알림
+            except (ClaidNoCreditError, PhotoroomNoCreditError) as e:
+                # 크레딧 부족 → 모든 처리 즉시 중단 + 팝업 알림
                 self._unified_processing = False
+                svc = "Claid.ai" if isinstance(e, ClaidNoCreditError) else "Photoroom"
                 self._log_unified(
-                    f"❌ Claid.ai 크레딧 부족 — 처리를 중지합니다. ({completed[0]}/{total})", "error")
-                self.after(0, lambda msg=str(e): messagebox.showerror(
-                    "Claid.ai 크레딧 부족",
-                    f"{msg}\n\n처리가 중단되었습니다.\n"
-                    f"완료: {completed[0]}장 / 전체: {total}장",
+                    f"❌ {svc} 크레딧 부족 — 모든 처리를 즉시 중지합니다. "
+                    f"({completed[0]}/{total})", "error")
+                self.after(0, lambda msg=str(e), s=svc: messagebox.showerror(
+                    f"{s} 크레딧 부족 — 처리 중단",
+                    f"{msg}\n\n모든 처리가 즉시 중단되었습니다.\n"
+                    f"완료: {completed[0]}장 / 전체: {total}장\n\n"
+                    f"완료 목록에서 반쪽 처리된 항목을 삭제 후 재시작하세요.",
                     parent=self))
                 result = {"success": False, "error": str(e), "path": img_path}
             except Exception as e:
@@ -1643,6 +1650,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
     def _stop_unified_photoroom(self):
         self._unified_processing = False
+
     def _on_unified_done(self):
         self._unified_processing = False
         self.btn_unified_file.config(state="normal")

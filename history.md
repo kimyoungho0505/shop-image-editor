@@ -1,6 +1,6 @@
 # LUXBOY Shop Image Editor - 개발 히스토리
 
-> 마지막 업데이트: 2026-04-20 (6차)
+> 마지막 업데이트: 2026-04-22 (7차)
 > 다른 PC에서 이어서 개발할 때 이 문서를 참고하세요.
 
 ---
@@ -572,4 +572,53 @@ PHOTOROOM_API_KEY=your_photoroom_api_key_here
 - Gemini가 코드블록(`\`\`\`json`)에 배열을 감싸서 응답하면 방법 2가 list를 그대로 반환
 - `_to_instruction()`에서 `list.get()` 호출 → `AttributeError: 'list' object has no attribute 'get'`
 - **수정**: 방법 2·3·4 모두 `isinstance` 체크 + 첫 번째 dict 추출 로직 추가
+
+---
+
+## 2026년 4월 22일 업데이트 (7차)
+
+### 🚫 Claid.ai 리사이즈 제거
+
+- `src/claid/client.py`: `process()` 메서드에서 `resizing` 작업 완전 제거
+- 이제 Claid.ai는 **색보정(hdr + sharpness)만** 수행
+- detail/worn 타입에 적용되던 1000×1000 리사이즈 로직 삭제
+- 크레딧 사용량 동일: 1크레딧/장 (adjustments only)
+
+### 🛑 크레딧 부족 즉시 전체 중지
+
+#### 배경
+기존에는 Claid.ai 402 오류만 처리했고 Photoroom 402는 일반 예외로 처리되어, 둘 중 하나만 처리된 이미지가 완료로 기록되는 문제가 있었음.
+
+#### 구현 (`src/pipeline.py`)
+- `PhotoroomNoCreditError(RuntimeError)` 클래스 추가 (기존 `ClaidNoCreditError`와 동일 패턴)
+- `_call_photoroom()`: Photoroom 호출 시 402/billing/credits 응답 감지 → `PhotoroomNoCreditError` 발생
+- `_call_bg_removal()` hybrid 모드: `PhotoroomNoCreditError`는 remove.bg 폴백 없이 즉시 re-raise
+- `process_single_unified_photoroom()`:
+  - 직접 Photoroom 호출도 402 감지
+  - `except (ClaidNoCreditError, PhotoroomNoCreditError): raise` 로 통합
+
+#### 구현 (`gui3.py`)
+- `_process_one()`: 두 크레딧 오류 통합 처리
+  - 어떤 서비스 오류인지 서비스명 표시 ("Claid.ai" / "Photoroom")
+  - `_unified_processing = False` → 모든 병렬 스레드 즉시 중단
+  - 팝업 알림: 어떤 서비스 크레딧 부족인지, 완료된 장수 표시
+
+### 📋 라우팅 조건 이미지 종류 확장
+
+이미지종류 드롭다운에 새 타입 3개 추가:
+
+| 값 | 설명 | 매칭 조건 |
+|----|------|---------|
+| `mannequin` | 마네킹컷 | `image_type == "worn"` AND `has_mannequin == True` |
+| `model` | 모델컷 | `image_type == "worn"` AND `has_mannequin == False` |
+| `jewelry` | 주얼리 | `detected_category == "jewelry"` (image_type 무관) |
+
+#### 구현 (`src/pipeline.py`)
+- Vision 분류 시 `has_mannequin`, `detected_category` 추출 (실패 시 각각 `False`, `""` 기본값)
+- 분류 결과 로그에 마네킹 여부 및 카테고리 표시
+- 라우팅 조건 `image_type` 체크를 확장하여 pseudo-type 처리
+
+#### 구현 (`gui3.py`)
+- 이미지종류 Combobox: `any / full / detail / worn / mannequin / model / jewelry / package`
+- 설정 탭 툴팁 업데이트
 

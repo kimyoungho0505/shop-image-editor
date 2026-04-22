@@ -886,6 +886,11 @@ class ClaidNoCreditError(RuntimeError):
     pass
 
 
+class PhotoroomNoCreditError(RuntimeError):
+    """Photoroom API 크레딧 부족 오류 — 처리 중단 신호."""
+    pass
+
+
 class ImageEditPipeline:
     """쇼핑몰 이미지 편집 전체 파이프라인."""
 
@@ -1064,9 +1069,19 @@ class ImageEditPipeline:
             pr_config = {k: v for k, v in pr_config.items()
                          if not k.startswith("shadow.")}
 
-        return self._photoroom.process(
-            image_bytes, image_type, background,
-            output_size=output_size, config=pr_config)
+        try:
+            return self._photoroom.process(
+                image_bytes, image_type, background,
+                output_size=output_size, config=pr_config)
+        except RuntimeError as e:
+            msg = str(e)
+            if "402" in msg or "billing" in msg.lower() or "credits" in msg.lower() or "payment" in msg.lower():
+                on_log("  ❌ Photoroom 크레딧 부족 — 처리를 중지합니다", "error")
+                raise PhotoroomNoCreditError(
+                    "Photoroom API 크레딧이 부족합니다.\n"
+                    "크레딧을 충전한 후 다시 시작하세요."
+                ) from e
+            raise
 
     def _call_bg_removal(self, image_bytes: bytes, image_type: str,
                          background: str, output_size: str = "1000x1000",
@@ -1102,6 +1117,8 @@ class ImageEditPipeline:
                         _log(f"  [hybrid] Photoroom 품질 불량: {reason}")
                 else:
                     _log("  [hybrid] Photoroom 반환값 없음")
+            except PhotoroomNoCreditError:
+                raise  # 크레딧 부족은 폴백 없이 즉시 전파
             except Exception as e:
                 _log(f"  [hybrid] Photoroom 오류: {e}")
 
@@ -4826,17 +4843,23 @@ class ImageEditPipeline:
                 background = instruction.background   # clean / colored / gradient ...
                 shooting_angle = instruction.shooting_angle  # front / top_down / side / ...
                 is_label_cut = instruction.is_label_cut  # 바코드/모델명 태그 확대컷
+                has_mannequin = instruction.has_mannequin  # 마네킹 여부
+                detected_category = instruction.detected_category.lower()  # jewelry, bag, ...
             except Exception as ve:
                 import traceback as _tb
                 _log(f"  Vision 분류 실패 → full/clean 으로 가정: {ve}", "warn")
                 _log(_tb.format_exc(), "warn")
                 image_type, background, shooting_angle, is_label_cut = "full", "clean", "front", False
+                has_mannequin = False
+                detected_category = ""
 
             is_detail = image_type == "detail"
             is_clean_bg = background in ("clean", "white", "")
             is_top_down = shooting_angle == "top_down"
             _log(f"  분류 결과: {image_type} / 배경={background} / 각도={shooting_angle}"
-                 + (" / 라벨컷" if is_label_cut else ""))
+                 + (" / 라벨컷" if is_label_cut else "")
+                 + (" / 마네킹" if has_mannequin and image_type == "worn" else "")
+                 + (f" / 카테고리={detected_category}" if detected_category else ""))
 
             # 라우팅 규칙 평가
             do_nukki, do_shadow, do_enhance = None, None, None
@@ -4850,8 +4873,22 @@ class ImageEditPipeline:
                         continue
                     if "shooting_angle" in cond and cond["shooting_angle"] != shooting_angle:
                         continue
-                    if "image_type" in cond and cond["image_type"] != image_type:
-                        continue
+                    if "image_type" in cond:
+                        cond_it = cond["image_type"]
+                        if cond_it == "mannequin":
+                            # 마네킹컷: worn 이면서 has_mannequin=True
+                            if image_type != "worn" or not has_mannequin:
+                                continue
+                        elif cond_it == "model":
+                            # 모델컷: worn 이면서 has_mannequin=False (사람 모델)
+                            if image_type != "worn" or has_mannequin:
+                                continue
+                        elif cond_it == "jewelry":
+                            # 주얼리: category == "jewelry"
+                            if detected_category != "jewelry":
+                                continue
+                        elif cond_it != image_type:
+                            continue
                     if "background_type" in cond and cond["background_type"] != bg_type:
                         continue
                     proc = rule.get("processing", {})
@@ -4911,10 +4948,20 @@ class ImageEditPipeline:
                 else:
                     _log("  [경로] Photoroom 배경만 (그림자 없음)", "info")
 
-                result_bytes = self._photoroom.process(
-                    image_bytes, image_type, background,
-                    output_size="1000x1000", config=pr_config,
-                )
+                try:
+                    result_bytes = self._photoroom.process(
+                        image_bytes, image_type, background,
+                        output_size="1000x1000", config=pr_config,
+                    )
+                except RuntimeError as _pr_err:
+                    _msg = str(_pr_err)
+                    if "402" in _msg or "billing" in _msg.lower() or "credits" in _msg.lower() or "payment" in _msg.lower():
+                        _log("  ❌ Photoroom 크레딧 부족 — 처리를 중지합니다", "error")
+                        raise PhotoroomNoCreditError(
+                            "Photoroom API 크레딧이 부족합니다.\n"
+                            "크레딧을 충전한 후 다시 시작하세요."
+                        ) from _pr_err
+                    raise
                 if not result_bytes:
                     return {"success": False, "error": "Photoroom 응답 없음", "path": image_path}
                 _log(f"  Photoroom 완료 ({len(result_bytes)//1024}KB)", "success")
@@ -4955,8 +5002,8 @@ class ImageEditPipeline:
                 "is_label_cut": is_label_cut,
             }
 
-        except ClaidNoCreditError:
-            raise   # GUI로 전파 — 처리 중단 신호
+        except (ClaidNoCreditError, PhotoroomNoCreditError):
+            raise   # GUI로 전파 — 처리 즉시 중단 신호
 
         except Exception as e:
             import traceback

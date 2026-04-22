@@ -95,30 +95,11 @@ class ClaidClient:
         if upscale:
             operations["restorations"] = {"upscale": str(upscale)}
 
-        # 색보정
+        # 색보정만 수행 (리사이즈 없음)
         operations["adjustments"] = {
             "hdr": hdr,
             "sharpness": sharpness,
         }
-
-        # 디테일/착용컷 리사이즈
-        if image_type == "detail":
-            fit = config.get("fit", "canvas")
-            operations["resizing"] = {
-                "width": config.get("width", width),
-                "height": config.get("height", height),
-                "fit": fit,
-            }
-            bg_color = config.get("background_color")
-            if bg_color:
-                operations["background"] = {"color": bg_color}
-        elif image_type == "worn":
-            fit = config.get("fit", "bounds")
-            operations["resizing"] = {
-                "width": config.get("width", width),
-                "height": "auto",
-                "fit": fit,
-            }
 
         logger.info(f"Claid.ai 처리 (유형: {image_type}, hdr={hdr}, sharpness={sharpness})")
         return self._call_api(image_bytes, operations)
