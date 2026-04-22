@@ -1270,40 +1270,63 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                                     bg=CARD_BG, fg="#555", padx=8, pady=6)
         folder_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
 
-        # Treeview (폴더경로 / 이미지수 / 완료수 / 열기)
+        # Treeview (☐ / 폴더경로 / 이미지수 / 완료수 / 열기)
         tv_frame = tk.Frame(folder_card, bg=CARD_BG)
         tv_frame.pack(fill="both", expand=True)
         tv_scroll = ttk.Scrollbar(tv_frame, orient="vertical")
         self.tv_folders = ttk.Treeview(
-            tv_frame, columns=("path", "count", "done", "open"),
+            tv_frame, columns=("sel", "path", "count", "done", "open"),
             show="headings", yscrollcommand=tv_scroll.set,
-            selectmode="extended", height=8)
+            selectmode="browse", height=8)
         tv_scroll.config(command=self.tv_folders.yview)
+        self.tv_folders.heading("sel",   text="",      command=lambda: _toggle_all_check())
         self.tv_folders.heading("path",  text="폴더 경로")
         self.tv_folders.heading("count", text="이미지")
         self.tv_folders.heading("done",  text="완료")
         self.tv_folders.heading("open",  text="열기")
-        self.tv_folders.column("path",  stretch=True,  minwidth=120, width=240)
+        self.tv_folders.column("sel",   stretch=False, minwidth=28, width=28,  anchor="center")
+        self.tv_folders.column("path",  stretch=True,  minwidth=120, width=220)
         self.tv_folders.column("count", stretch=False, minwidth=50,  width=50,  anchor="center")
         self.tv_folders.column("done",  stretch=False, minwidth=50,  width=50,  anchor="center")
         self.tv_folders.column("open",  stretch=False, minwidth=46,  width=46,  anchor="center")
         self.tv_folders.pack(side="left", fill="both", expand=True)
         tv_scroll.pack(side="right", fill="y")
 
-        # 열기 컬럼 클릭 → 해당 폴더 열기 (add="+" 로 기본 선택 동작 유지)
+        # 체크 토글 헬퍼
+        def _set_check(iid, checked: bool):
+            self.tv_folders.set(iid, "sel", "☑" if checked else "☐")
+
+        def _is_checked(iid) -> bool:
+            return self.tv_folders.set(iid, "sel") == "☑"
+
+        def _get_checked_iids():
+            return [i for i in self.tv_folders.get_children() if _is_checked(i)]
+
+        def _toggle_all_check():
+            children = self.tv_folders.get_children()
+            any_unchecked = any(not _is_checked(i) for i in children)
+            for i in children:
+                _set_check(i, any_unchecked)
+
+        # 클릭 이벤트 — ☐열: 체크 토글 / 📂열: 폴더 열기
         def _on_tv_click(event):
             region = self.tv_folders.identify_region(event.x, event.y)
             col    = self.tv_folders.identify_column(event.x)
             iid    = self.tv_folders.identify_row(event.y)
-            if region == "cell" and col == "#4" and iid:
-                folder = self.tv_folders.set(iid, "path")
-                if Path(folder).is_dir():
-                    os.startfile(folder)
-        self.tv_folders.bind("<Button-1>", _on_tv_click, add="+")
+            if region == "cell" and iid:
+                if col == "#1":          # sel 컬럼 → 체크 토글
+                    _set_check(iid, not _is_checked(iid))
+                    return "break"       # 기본 선택 동작 차단
+                elif col == "#5":        # open 컬럼 → 폴더 열기
+                    folder = self.tv_folders.set(iid, "path")
+                    if Path(folder).is_dir():
+                        os.startfile(folder)
+        self.tv_folders.bind("<Button-1>", _on_tv_click)
 
-        # Delete 키로 선택 항목 삭제
+        # Delete 키로 체크된(없으면 선택된) 항목 목록에서 제거
         def _on_tv_delete(event):
-            for iid in self.tv_folders.selection():
+            targets = _get_checked_iids() or list(self.tv_folders.selection())
+            for iid in targets:
                 self.tv_folders.delete(iid)
         self.tv_folders.bind("<Delete>", _on_tv_delete)
 
@@ -1338,7 +1361,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 cnt  = _count_images(folder)
                 done = _read_folder_done_count(folder)
                 done_str = f"{done}장" if done > 0 else "-"
-                self.tv_folders.insert("", "end", values=(folder, f"{cnt}장", done_str, "📂"))
+                self.tv_folders.insert("", "end",
+                                       values=("☐", folder, f"{cnt}장", done_str, "📂"))
 
         self._add_folder_to_tv = _add_folder_to_tv  # 외부 메서드에서 사용
 
@@ -1366,14 +1390,48 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             value=_saved_folders[0] if _saved_folders else "")
 
         # 버튼 행
+        def _delete_checked_from_disk():
+            """체크된 폴더를 디스크에서 삭제 후 목록에서 제거."""
+            targets = _get_checked_iids()
+            if not targets:
+                messagebox.showwarning("알림", "삭제할 폴더를 체크(☑)하세요.", parent=self)
+                return
+            paths = [self.tv_folders.set(i, "path") for i in targets]
+            preview = "\n".join(paths[:5])
+            if len(paths) > 5:
+                preview += f"\n... 외 {len(paths)-5}개"
+            if not messagebox.askyesno(
+                    "폴더 삭제 확인",
+                    f"체크된 {len(paths)}개 폴더를 디스크에서 삭제하시겠습니까?\n\n"
+                    f"{preview}\n\n⚠️ 폴더 안의 파일이 모두 삭제됩니다!",
+                    parent=self):
+                return
+            import shutil as _shutil
+            errors = []
+            for iid, path in zip(targets, paths):
+                try:
+                    _shutil.rmtree(path)
+                    self.tv_folders.delete(iid)
+                except Exception as ex:
+                    errors.append(f"{Path(path).name}: {ex}")
+            if errors:
+                messagebox.showerror("삭제 오류", "\n".join(errors), parent=self)
+
+        def _remove_checked_from_list():
+            """체크된 항목을 목록에서만 제거 (디스크 삭제 없음)."""
+            targets = _get_checked_iids()
+            if not targets:
+                # 체크 없으면 선택된 행 제거
+                targets = list(self.tv_folders.selection())
+            for iid in targets:
+                self.tv_folders.delete(iid)
+
         btn_row = tk.Frame(folder_card, bg=CARD_BG)
         btn_row.pack(fill="x", pady=(6, 0))
         ttk.Button(btn_row, text="+ 추가",
                    command=self._browse_unified_input).pack(side="left", padx=(0, 3))
         ttk.Button(btn_row, text="삭제",
-                   command=lambda: [self.tv_folders.delete(i)
-                                    for i in self.tv_folders.selection()]
-                   ).pack(side="left", padx=(0, 3))
+                   command=_delete_checked_from_disk).pack(side="left", padx=(0, 3))
         ttk.Button(btn_row, text="전체삭제",
                    command=lambda: self.tv_folders.delete(*self.tv_folders.get_children())
                    ).pack(side="left", padx=(0, 8))
