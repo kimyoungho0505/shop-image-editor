@@ -2156,30 +2156,179 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
         folder_card = tk.LabelFrame(parent, text=" 폴더 ", font=(FONT_FAMILY, 9, "bold"),
                                     bg=CARD_BG, fg="#555", padx=10, pady=6)
         folder_card.pack(fill="x", padx=12, pady=(0, 6))
-        folder_card.columnconfigure(1, weight=1)
 
         _init_input = self._state.get("input_folder", "")
         _init_output = (str(Path(_init_input) / "OUTPUT") if _init_input
                         else self._state.get("output_folder", str(APP_DIR / "output")))
-        self.var_unified_input = tk.StringVar(value=_init_input)
         self.var_unified_output = tk.StringVar(value=_init_output)
 
-        for r, (lbl, var, browse_cmd, open_cmd) in enumerate([
-            ("입력", self.var_unified_input,
-             self._browse_unified_input, self._open_unified_input_folder),
-            ("출력", self.var_unified_output,
-             self._browse_unified_output, self._open_unified_output_folder),
-        ]):
-            ttk.Label(folder_card, text=lbl, style="Card.TLabel",
-                      font=(FONT_FAMILY, 10, "bold"), width=4).grid(
-                row=r, column=0, sticky="w", padx=(12, 4), pady=6)
-            e = ttk.Entry(folder_card, textvariable=var, font=(FONT_FAMILY, 10))
-            e.grid(row=r, column=1, sticky="ew", padx=0, pady=6)
-            self._bind_folder_drop(e, var)
-            bf = ttk.Frame(folder_card, style="Card.TFrame")
-            bf.grid(row=r, column=2, padx=(4, 8), pady=6)
-            ttk.Button(bf, text="...", width=3, command=browse_cmd).pack(side="left", padx=(0, 2))
-            ttk.Button(bf, text="열기", width=4, command=open_cmd).pack(side="left")
+        # ── 입력 폴더 다중 리스트 ──
+        self._unified_folders = []          # [str path, ...]
+        self._unified_folder_vars = {}      # path -> BooleanVar
+
+        lbl_in = ttk.Label(folder_card, text="입력", style="Card.TLabel",
+                           font=(FONT_FAMILY, 10, "bold"))
+        lbl_in.pack(anchor="w", padx=(2, 0), pady=(0, 2))
+
+        # 스크롤 가능한 폴더 리스트
+        list_outer = tk.Frame(folder_card, bg=CARD_BG)
+        list_outer.pack(fill="x", pady=(0, 4))
+        list_canvas = tk.Canvas(list_outer, bg="#f0f0f5", height=110,
+                                highlightthickness=1, highlightbackground="#ccc", bd=0)
+        list_sb = tk.Scrollbar(list_outer, orient="vertical", command=list_canvas.yview)
+        list_canvas.configure(yscrollcommand=list_sb.set)
+        list_canvas.pack(side="left", fill="both", expand=True)
+        list_sb.pack(side="right", fill="y")
+        folder_inner = tk.Frame(list_canvas, bg="#f0f0f5")
+        _fw_id = list_canvas.create_window((0, 0), window=folder_inner, anchor="nw")
+        def _sync_fw(e): list_canvas.itemconfig(_fw_id, width=e.width)
+        list_canvas.bind("<Configure>", _sync_fw)
+        def _mw_list(e): list_canvas.yview_scroll(-1*(e.delta//120), "units")
+        list_canvas.bind("<MouseWheel>", _mw_list)
+
+        # 빈 리스트 안내 라벨
+        lbl_empty = tk.Label(folder_inner, text="폴더를 추가하거나 여기에 드래그하세요",
+                             bg="#f0f0f5", fg="#aaa", font=(FONT_FAMILY, 9))
+        lbl_empty.pack(pady=36)
+
+        def _refresh_folder_list():
+            for w in folder_inner.winfo_children():
+                w.destroy()
+            if not self._unified_folders:
+                tk.Label(folder_inner, text="폴더를 추가하거나 여기에 드래그하세요",
+                         bg="#f0f0f5", fg="#aaa", font=(FONT_FAMILY, 9)).pack(pady=36)
+            else:
+                for path in self._unified_folders:
+                    _make_folder_row(path)
+            folder_inner.update_idletasks()
+            list_canvas.configure(scrollregion=list_canvas.bbox("all"))
+            _update_folder_del_btn()
+
+        def _make_folder_row(path):
+            if path not in self._unified_folder_vars:
+                self._unified_folder_vars[path] = tk.BooleanVar(value=False)
+            row = tk.Frame(folder_inner, bg="#f0f0f5")
+            row.pack(fill="x", padx=2, pady=1)
+            var = self._unified_folder_vars[path]
+            lbl_chk = tk.Label(row, text="☐", bg="#f0f0f5", fg="#888",
+                               font=(FONT_FAMILY, 11), cursor="hand2", width=2)
+            lbl_chk.pack(side="left", padx=(4, 0))
+            def _toggle(e, p=path, lc=lbl_chk):
+                nv = not self._unified_folder_vars[p].get()
+                self._unified_folder_vars[p].set(nv)
+                lc.config(text="☑" if nv else "☐", fg="#3b82f6" if nv else "#888")
+                _update_folder_del_btn()
+            lbl_chk.bind("<Button-1>", _toggle)
+            # 경로 라벨 (길면 줄임)
+            display = path if len(path) <= 48 else "…" + path[-45:]
+            tk.Label(row, text=display, bg="#f0f0f5", fg="#333",
+                     font=(FONT_FAMILY, 9), anchor="w").pack(
+                side="left", fill="x", expand=True, padx=(4, 4))
+            # ✕ 단일 삭제
+            def _remove_one(p=path):
+                if p in self._unified_folders:
+                    self._unified_folders.remove(p)
+                if p in self._unified_folder_vars:
+                    del self._unified_folder_vars[p]
+                _refresh_folder_list()
+            tk.Label(row, text="✕", bg="#f0f0f5", fg="#bbb",
+                     font=(FONT_FAMILY, 10), cursor="hand2").pack(
+                side="right", padx=(0, 6)).bind("<Button-1>", lambda e, p=path: _remove_one(p))
+
+        def _add_unified_folder(folder):
+            folder = str(folder)
+            if folder and folder not in self._unified_folders:
+                self._unified_folders.append(folder)
+                if len(self._unified_folders) == 1:
+                    out = Path(folder) / "OUTPUT"
+                    out.mkdir(parents=True, exist_ok=True)
+                    self.var_unified_output.set(str(out))
+                _refresh_folder_list()
+
+        def _update_folder_del_btn():
+            any_chk = any(v.get() for v in self._unified_folder_vars.values())
+            btn_del_folders.config(state="normal" if any_chk else "disabled")
+
+        def _delete_selected_folders():
+            to_del = [p for p, v in self._unified_folder_vars.items() if v.get()]
+            if not to_del:
+                return
+            preview = "\n".join(to_del[:5])
+            if len(to_del) > 5:
+                preview += f"\n... 외 {len(to_del)-5}개"
+            if not messagebox.askyesno(
+                    "폴더 삭제 확인",
+                    f"선택한 {len(to_del)}개 폴더를 디스크에서 삭제하시겠습니까?\n\n"
+                    f"{preview}\n\n⚠️ 폴더 안의 파일이 모두 삭제됩니다!",
+                    parent=self):
+                return
+            import shutil as _shutil
+            errors = []
+            for p in to_del:
+                try:
+                    _shutil.rmtree(p)
+                    self._unified_folders.remove(p)
+                    del self._unified_folder_vars[p]
+                except Exception as ex:
+                    errors.append(f"{Path(p).name}: {ex}")
+            _refresh_folder_list()
+            if errors:
+                messagebox.showerror("삭제 오류", "\n".join(errors), parent=self)
+
+        # 리스트 영역 DnD
+        def _on_list_drop(event):
+            raw = event.data.strip()
+            paths = []
+            if raw.startswith("{"):
+                import re as _re
+                paths = _re.findall(r'\{([^}]+)\}', raw)
+                remainder = _re.sub(r'\{[^}]+\}', '', raw).split()
+                paths += remainder
+            else:
+                paths = raw.split()
+            for p in paths:
+                path = Path(p)
+                if path.is_dir():
+                    _add_unified_folder(str(path))
+                elif path.is_file():
+                    _add_unified_folder(str(path.parent))
+        if _HAS_DND:
+            list_canvas.drop_target_register(DND_FILES)
+            list_canvas.dnd_bind("<<Drop>>", _on_list_drop)
+            folder_inner.drop_target_register(DND_FILES)
+            folder_inner.dnd_bind("<<Drop>>", _on_list_drop)
+
+        # 버튼 바
+        fbtn_bar = tk.Frame(folder_card, bg=CARD_BG)
+        fbtn_bar.pack(fill="x", pady=(0, 6))
+        ttk.Button(fbtn_bar, text="폴더 추가 ...",
+                   command=lambda: _add_unified_folder(
+                       filedialog.askdirectory(title="입력 폴더 추가", parent=self) or ""
+                   )).pack(side="left", padx=(0, 4))
+        btn_del_folders = ttk.Button(fbtn_bar, text="🗑 선택 삭제",
+                                     state="disabled", command=_delete_selected_folders)
+        btn_del_folders.pack(side="left")
+
+        # 초기 폴더 복원
+        if _init_input and Path(_init_input).is_dir():
+            _add_unified_folder(_init_input)
+
+        # ── 출력 폴더 ──
+        out_row = tk.Frame(folder_card, bg=CARD_BG)
+        out_row.pack(fill="x")
+        out_row.columnconfigure(1, weight=1)
+        ttk.Label(out_row, text="출력", style="Card.TLabel",
+                  font=(FONT_FAMILY, 10, "bold"), width=4).grid(
+            row=0, column=0, sticky="w", padx=(2, 4), pady=4)
+        e_out = ttk.Entry(out_row, textvariable=self.var_unified_output, font=(FONT_FAMILY, 10))
+        e_out.grid(row=0, column=1, sticky="ew", padx=0, pady=4)
+        self._bind_folder_drop(e_out, self.var_unified_output)
+        bf_out = ttk.Frame(out_row, style="Card.TFrame")
+        bf_out.grid(row=0, column=2, padx=(4, 0), pady=4)
+        ttk.Button(bf_out, text="...", width=3,
+                   command=self._browse_unified_output).pack(side="left", padx=(0, 2))
+        ttk.Button(bf_out, text="열기", width=4,
+                   command=self._open_unified_output_folder).pack(side="left")
 
         # ── 포토룸 배경+그림자 통합방식 ──
         opt_frame = tk.LabelFrame(parent, text=" 포토룸 배경+그림자 통합방식 ",
@@ -2297,9 +2446,7 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
         if mode == "file":
             filetypes = [("이미지 파일", "*.jpg *.jpeg *.png *.bmp *.tiff *.webp"),
                          ("모든 파일", "*.*")]
-            current = self.var_unified_input.get().strip()
-            initial_dir = str(Path(current).parent) if current and Path(current).is_file() \
-                          else (current if current and Path(current).is_dir() else "")
+            initial_dir = self._unified_folders[0] if self._unified_folders else ""
             filepaths = filedialog.askopenfilenames(
                 title="처리할 이미지 파일 선택 (여러 장 가능)",
                 filetypes=filetypes, initialdir=initial_dir or None, parent=self)
@@ -2307,15 +2454,16 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
                 return
             file_list = list(filepaths)
         else:
-            input_path = self.var_unified_input.get().strip()
-            if not input_path:
-                messagebox.showwarning("경고", "입력 폴더를 선택하세요.")
-                return
-            if not Path(input_path).is_dir():
-                messagebox.showerror("오류", f"입력 폴더가 존재하지 않습니다:\n{input_path}")
+            if not self._unified_folders:
+                messagebox.showwarning("경고", "입력 폴더를 추가하세요.")
                 return
             from src.utils.image_io import get_image_files
-            file_list = get_image_files(input_path)
+            file_list = []
+            for input_path in self._unified_folders:
+                if not Path(input_path).is_dir():
+                    messagebox.showwarning("경고", f"폴더가 존재하지 않습니다:\n{input_path}")
+                    continue
+                file_list.extend(get_image_files(input_path))
             if not file_list:
                 messagebox.showwarning("경고", "폴더에 이미지 파일이 없습니다.")
                 return
@@ -3923,25 +4071,20 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
 
     # ── 임시 옵션 탭 입출력 폴더 ──
     def _browse_unified_input(self):
-        folder = filedialog.askdirectory(title="입력 이미지 폴더 선택", parent=self)
-        if folder:
-            self.var_unified_input.set(folder)
-            out = Path(folder) / "OUTPUT"
-            out.mkdir(parents=True, exist_ok=True)
-            self.var_unified_output.set(str(out))
+        # 이 메서드는 더 이상 직접 사용되지 않음 (리스트 UI가 대체)
+        pass
 
     def _open_unified_input_folder(self):
-        path = self.var_unified_input.get().strip()
-        if not path:
-            messagebox.showwarning("알림", "입력 경로가 설정되지 않았습니다.")
+        # 첫 번째 폴더를 탐색기로 열기
+        folders = getattr(self, "_unified_folders", [])
+        if not folders:
+            messagebox.showwarning("알림", "입력 폴더가 없습니다.")
             return
-        p = Path(path)
-        if p.is_file():
-            os.startfile(str(p.parent))
-        elif p.is_dir():
+        path = folders[0]
+        if Path(path).is_dir():
             os.startfile(path)
         else:
-            messagebox.showwarning("알림", "입력 경로가 존재하지 않습니다.")
+            messagebox.showwarning("알림", "폴더가 존재하지 않습니다.")
 
     def _browse_unified_output(self):
         folder = filedialog.askdirectory(title="출력 폴더 선택", parent=self)
