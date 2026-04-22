@@ -5171,11 +5171,87 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
 
         # 헤더
         header_frame = tk.Frame(left, bg=VF_BG)
-        header_frame.pack(fill="x", padx=10, pady=(10, 6))
+        header_frame.pack(fill="x", padx=10, pady=(10, 4))
         lbl_header = tk.Label(header_frame, text="처리 현황",
                               bg=VF_BG, fg=VF_TEXT_DIM, font=(FONT_FAMILY, 10, "bold"),
                               anchor="w")
         lbl_header.pack(side="left")
+
+        # ── 체크박스 삭제 툴바 ──
+        all_check_var = tk.BooleanVar(value=False)
+        file_check_vars = {}   # fname -> BooleanVar
+
+        def _update_del_btn():
+            any_chk = any(v.get() for v in file_check_vars.values())
+            btn_delete.config(state="normal" if any_chk else "disabled")
+            # 전체선택 체크박스 동기화
+            if not file_check_vars:
+                all_check_var.set(False)
+            elif all(v.get() for v in file_check_vars.values()):
+                all_check_var.set(True)
+            elif not any_chk:
+                all_check_var.set(False)
+
+        def _delete_selected():
+            to_delete = [f for f, v in file_check_vars.items() if v.get()]
+            if not to_delete:
+                return
+            n = len(to_delete)
+            if not messagebox.askyesno(
+                    "삭제 확인",
+                    f"선택한 {n}개 파일의 출력본을 삭제하시겠습니까?\n"
+                    "⚠️ 원본 파일은 삭제되지 않습니다.",
+                    parent=dlg):
+                return
+            deleted, errors = [], []
+            for fname in to_delete:
+                pair = next((p for p in self._viewfinder_pairs
+                             if Path(p["input_path"]).name == fname), None)
+                if pair:
+                    for of in pair.get("output_files", []):
+                        p = Path(of["path"])
+                        try:
+                            if p.exists():
+                                p.unlink()
+                            deleted.append(fname)
+                        except Exception as ex:
+                            errors.append(f"{fname}: {ex}")
+                else:
+                    errors.append(f"{fname}: pair 없음")
+            # UI 행 제거
+            for fname in deleted:
+                if fname in file_rows:
+                    file_rows[fname]["frame"].destroy()
+                    del file_rows[fname]
+                if fname in file_check_vars:
+                    del file_check_vars[fname]
+            all_check_var.set(False)
+            _update_del_btn()
+            msg = f"✅ {len(deleted)}개 출력 파일 삭제 완료"
+            if errors:
+                msg += "\n⚠️ 오류:\n" + "\n".join(errors[:3])
+            messagebox.showinfo("삭제 완료", msg, parent=dlg)
+
+        def _toggle_all():
+            val = all_check_var.get()
+            for v in file_check_vars.values():
+                v.set(val)
+            _update_del_btn()
+
+        del_bar = tk.Frame(left, bg=VF_BG)
+        del_bar.pack(fill="x", padx=8, pady=(0, 4))
+        tk.Checkbutton(
+            del_bar, text="전체선택", variable=all_check_var,
+            bg=VF_BG, fg=VF_TEXT_DIM, activebackground=VF_BG,
+            selectcolor=VF_CARD, font=(FONT_FAMILY, 8),
+            command=_toggle_all
+        ).pack(side="left")
+        btn_delete = tk.Button(
+            del_bar, text="🗑 선택 삭제", bg="#3a1515", fg=VF_RED,
+            font=(FONT_FAMILY, 8), relief="flat", padx=6, pady=2,
+            state="disabled", cursor="hand2", command=_delete_selected
+        )
+        btn_delete.pack(side="right")
 
         # 파일 리스트 영역
         list_frame = tk.Frame(left, bg=VF_BG)
@@ -5226,6 +5302,16 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
             lbl_name = tk.Label(top, text=fname, bg=VF_BG, fg=VF_TEXT,
                                 font=(FONT_FAMILY, 9), anchor="w", cursor="hand2")
             lbl_name.pack(side="left", fill="x", expand=True)
+
+            # 체크박스 (우측)
+            chk_var = tk.BooleanVar(value=False)
+            file_check_vars[fname] = chk_var
+            chk = tk.Checkbutton(
+                top, variable=chk_var, bg=VF_BG, activebackground=VF_BG,
+                selectcolor=VF_CARD, relief="flat", bd=0,
+                command=_update_del_btn
+            )
+            chk.pack(side="right", padx=(2, 2))
 
             def _copy_fname(e, name=fname):
                 dlg.clipboard_clear()
