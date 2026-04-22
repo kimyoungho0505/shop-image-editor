@@ -2224,16 +2224,17 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
             tk.Label(row, text=display, bg="#f0f0f5", fg="#333",
                      font=(FONT_FAMILY, 9), anchor="w").pack(
                 side="left", fill="x", expand=True, padx=(4, 4))
-            # ✕ 단일 삭제
+            # ✕ 단일 제거
             def _remove_one(p=path):
                 if p in self._unified_folders:
                     self._unified_folders.remove(p)
                 if p in self._unified_folder_vars:
                     del self._unified_folder_vars[p]
                 _refresh_folder_list()
-            tk.Label(row, text="✕", bg="#f0f0f5", fg="#bbb",
-                     font=(FONT_FAMILY, 10), cursor="hand2").pack(
-                side="right", padx=(0, 6)).bind("<Button-1>", lambda e, p=path: _remove_one(p))
+            lbl_x = tk.Label(row, text="✕", bg="#f0f0f5", fg="#bbb",
+                             font=(FONT_FAMILY, 10), cursor="hand2")
+            lbl_x.pack(side="right", padx=(0, 6))
+            lbl_x.bind("<Button-1>", lambda e, p=path: _remove_one(p))
 
         def _add_unified_folder(folder):
             folder = str(folder)
