@@ -13,6 +13,11 @@
 - Vision 클라이언트: src/analyzer/ (claude, openai, gemini, grok)
 - API 키: .env 파일 (dotenv)
 
+## 작업 방식 규칙
+- **동시에 여러 개의 업무를 지시받으면 멀티 에이전트(Agent 툴 병렬 실행)로 처리한다**
+- **개발 완료 후 실제 구동 테스트를 반드시 수행하고, 완료 시 음성으로 "완료되었습니다" 출력한다**
+  - 음성 출력: `python -c "import pyttsx3; e=pyttsx3.init(); e.say('완료되었습니다'); e.runAndWait()"` 또는 PowerShell `Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('완료되었습니다')`
+
 ## PySide6 GUI 구조 (gui_pyside/)
 - 진입점: gui_pyside.py → gui_pyside/app.py (MainWindow)
 - 탭: gui_pyside/tabs/ (main_tab, prompt_tab, hints_tab, settings_tab)
