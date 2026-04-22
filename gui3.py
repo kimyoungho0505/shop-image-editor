@@ -1539,7 +1539,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             with lock:
                 vf_idx = self._vf_register_file(img_path)
             try:
-                from src.pipeline import ImageEditPipeline
+                from src.pipeline import ImageEditPipeline, ClaidNoCreditError
                 pl = ImageEditPipeline(config_dir=str(CONFIG_DIR))
                 pl._vision_provider = vision_provider
                 result = pl.process_single_unified_photoroom(
@@ -1552,6 +1552,17 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     idx=idx,
                     routing_rules=self._routing_rules_data,
                 )
+            except ClaidNoCreditError as e:
+                # 크레딧 부족 → 처리 즉시 중단 + 팝업 알림
+                self._unified_processing = False
+                self._log_unified(
+                    f"❌ Claid.ai 크레딧 부족 — 처리를 중지합니다. ({completed[0]}/{total})", "error")
+                self.after(0, lambda msg=str(e): messagebox.showerror(
+                    "Claid.ai 크레딧 부족",
+                    f"{msg}\n\n처리가 중단되었습니다.\n"
+                    f"완료: {completed[0]}장 / 전체: {total}장",
+                    parent=self))
+                result = {"success": False, "error": str(e), "path": img_path}
             except Exception as e:
                 import traceback
                 self._log_unified(f"[{fname}] 오류: {e}", "error")

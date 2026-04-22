@@ -881,6 +881,11 @@ def _clean_alpha_mode(img, original_bytes: bytes, output_size: int,
     return buf.getvalue()
 
 
+class ClaidNoCreditError(RuntimeError):
+    """Claid.ai API 크레딧 부족 오류 — 처리 중단 신호."""
+    pass
+
+
 class ImageEditPipeline:
     """쇼핑몰 이미지 편집 전체 파이프라인."""
 
@@ -928,11 +933,8 @@ class ImageEditPipeline:
     def _claid_process_safe(self, image_bytes: bytes, image_type: str,
                             config: dict = None, fallback: bytes = None,
                             on_log=None) -> bytes:
-        """Claid.ai 보정 호출 — 크레딧 부족/오류 시 fallback 반환."""
+        """Claid.ai 보정 호출 — 크레딧 부족 시 ClaidNoCreditError 발생, 일반 오류 시 fallback 반환."""
         _log = on_log or (lambda msg, tag="info": None)
-        if self._claid_no_credits:
-            _log("  ⚠️ Claid 크레딧 없음 → 보정 스킵", "warn")
-            return fallback if fallback is not None else image_bytes
         try:
             result = self._claid.process(image_bytes, image_type, config=config)
             if not result:
@@ -942,10 +944,12 @@ class ImageEditPipeline:
         except RuntimeError as e:
             msg = str(e)
             if "402" in msg or "billing" in msg or "12017" in msg or "credits" in msg.lower():
-                self._claid_no_credits = True
-                _log("  ❌ Claid 크레딧 부족 — 이 세션에서 Claid 보정을 건너뜁니다", "warn")
-            else:
-                _log(f"  ❌ Claid 오류: {e}", "error")
+                _log("  ❌ Claid.ai 크레딧 부족 — 처리를 중지합니다", "error")
+                raise ClaidNoCreditError(
+                    "Claid.ai API 크레딧이 부족합니다.\n"
+                    "크레딧을 충전한 후 다시 시작하세요."
+                ) from e
+            _log(f"  ❌ Claid 오류: {e}", "error")
             return fallback if fallback is not None else image_bytes
 
     def _get_vision_client(self):
@@ -4950,6 +4954,9 @@ class ImageEditPipeline:
                 "shooting_angle": shooting_angle,
                 "is_label_cut": is_label_cut,
             }
+
+        except ClaidNoCreditError:
+            raise   # GUI로 전파 — 처리 중단 신호
 
         except Exception as e:
             import traceback
