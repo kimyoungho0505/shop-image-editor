@@ -5299,11 +5299,7 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
             lbl_icon = tk.Label(top, text=icon, bg=VF_BG, font=(FONT_FAMILY, 10))
             lbl_icon.pack(side="left", padx=(0, 6))
 
-            lbl_name = tk.Label(top, text=fname, bg=VF_BG, fg=VF_TEXT,
-                                font=(FONT_FAMILY, 9), anchor="w", cursor="hand2")
-            lbl_name.pack(side="left", fill="x", expand=True)
-
-            # 체크박스 (우측)
+            # 체크박스 — lbl_name보다 먼저 pack해야 우측 공간 확보
             chk_var = tk.BooleanVar(value=False)
             file_check_vars[fname] = chk_var
             chk = tk.Checkbutton(
@@ -5312,6 +5308,10 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
                 command=_update_del_btn
             )
             chk.pack(side="right", padx=(2, 2))
+
+            lbl_name = tk.Label(top, text=fname, bg=VF_BG, fg=VF_TEXT,
+                                font=(FONT_FAMILY, 9), anchor="w", cursor="hand2")
+            lbl_name.pack(side="left", fill="x", expand=True)
 
             def _copy_fname(e, name=fname):
                 dlg.clipboard_clear()
