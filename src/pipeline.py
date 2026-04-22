@@ -1,10 +1,51 @@
 """전체 이미지 편집 파이프라인 오케스트레이터."""
+import json
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable
 
 import numpy as np
 import yaml
 from loguru import logger
+
+
+def _update_progress_log(output_dir: str, source_filename: str, success: bool) -> None:
+    """OUTPUT/.shop_progress.json 에 처리 결과를 기록한다.
+
+    Args:
+        output_dir:       출력 폴더 경로 (예: D:/photos/OUTPUT)
+        source_filename:  원본 파일명 (예: IMG_001.jpg)
+        success:          처리 성공 여부
+    """
+    try:
+        log_path = Path(output_dir) / ".shop_progress.json"
+        if log_path.exists():
+            try:
+                data = json.loads(log_path.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        else:
+            data = {}
+
+        data.setdefault("completed", [])
+        data.setdefault("failed", [])
+        data["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if success:
+            if source_filename not in data["completed"]:
+                data["completed"].append(source_filename)
+            # 재처리 성공 시 실패 목록에서 제거
+            data["failed"] = [f for f in data["failed"] if f != source_filename]
+        else:
+            if source_filename not in data["failed"]:
+                data["failed"].append(source_filename)
+
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception as e:
+        logger.warning(f"진행 로그 기록 실패: {e}")
 
 from .analyzer.vision_client import VisionClient
 from .analyzer.openai_vision_client import OpenAIVisionClient
@@ -4732,6 +4773,7 @@ class ImageEditPipeline:
         shadow_opacity: int = 20,
         on_log: Callable = None,
         idx: int = 1,
+        routing_rules: list = None,
     ) -> dict:
         """Vision 분류 → 자동 분기 처리.
 
@@ -4765,29 +4807,57 @@ class ImageEditPipeline:
             _log(f"  분류 결과: {image_type} / 배경={background} / 각도={shooting_angle}"
                  + (" / 라벨컷" if is_label_cut else ""))
 
+            # 라우팅 규칙 평가
+            do_nukki, do_shadow, do_enhance = None, None, None
+            if routing_rules:
+                bg_type = "clean" if is_clean_bg else "colored"
+                for rule in routing_rules:
+                    cond = rule.get("conditions", {})
+                    if cond.get("is_label_cut") is True and not is_label_cut:
+                        continue
+                    if cond.get("is_label_cut") is False and is_label_cut:
+                        continue
+                    if "shooting_angle" in cond and cond["shooting_angle"] != shooting_angle:
+                        continue
+                    if "image_type" in cond and cond["image_type"] != image_type:
+                        continue
+                    if "background_type" in cond and cond["background_type"] != bg_type:
+                        continue
+                    proc = rule.get("processing", {})
+                    do_nukki   = proc.get("nukki",   True)
+                    do_shadow  = proc.get("shadow",  True)
+                    do_enhance = proc.get("enhance", True)
+                    _log(f"  [라우팅규칙] '{rule.get('name','?')}' 적용 → 누끼={do_nukki} 그림자={do_shadow} 보정={do_enhance}")
+                    break
+
             claid_settings = self._settings.get("claid", {})
             claid_config = dict(claid_settings.get(image_type, claid_settings.get("full", {})))
             output_config = self._settings.get("output", {})
             max_size_kb = output_config.get("max_file_size_kb", 2024)
 
-            if is_label_cut:
-                # ── 케이스 5: 라벨/바코드컷 → 원본 그대로 저장 (처리 없음) ──
-                _log("  [경로] 라벨/바코드컷 → 처리 없이 원본 저장 (배경제거·보정 없음)", "info")
+            # ── 처리 플래그 결정 (라우팅 규칙 없으면 기존 하드코딩) ──
+            if do_nukki is None:
+                # 기존 하드코딩 로직
+                if is_label_cut:
+                    do_nukki, do_shadow, do_enhance = False, False, False
+                elif is_top_down:
+                    do_nukki, do_shadow, do_enhance = False, False, True
+                elif is_detail and not is_clean_bg:
+                    do_nukki, do_shadow, do_enhance = False, False, True
+                elif is_detail and is_clean_bg:
+                    do_nukki, do_shadow, do_enhance = True, False, True
+                else:
+                    do_nukki, do_shadow, do_enhance = True, True, True
+
+            # ── 처리 실행 ──
+            if not do_nukki and not do_enhance:
+                # 아무 처리 없음 → 원본 그대로
+                _log("  [경로] 처리 없음 → 원본 저장", "info")
                 current_bytes = original_bytes
 
-            elif is_top_down:
-                # ── 케이스 4: 수직촬영(탑다운) → 누끼/그림자 없이 Claid만 ──
-                _log("  [경로] 수직촬영(탑다운) → Claid 보정만 수행 (배경제거·그림자 없음)", "info")
-                current_bytes = self._claid.process(image_bytes, image_type, config=claid_config)
-                if not current_bytes:
-                    current_bytes = image_bytes
-                    _log("  Claid 응답 없음 → 원본 그대로 사용", "warn")
-                else:
-                    _log(f"  Claid 완료 ({len(current_bytes)//1024}KB)", "success")
-
-            elif is_detail and not is_clean_bg:
-                # ── 케이스 3: 디테일 + 비흰배경 → Claid만 ──
-                _log("  [경로] 디테일컷 + 비흰배경 → Claid 보정만 수행", "info")
+            elif not do_nukki and do_enhance:
+                # 보정만
+                _log("  [경로] 보정만 수행 (누끼 없음)", "info")
                 current_bytes = self._claid.process(image_bytes, image_type, config=claid_config)
                 if not current_bytes:
                     current_bytes = image_bytes
@@ -4796,7 +4866,7 @@ class ImageEditPipeline:
                     _log(f"  Claid 완료 ({len(current_bytes)//1024}KB)", "success")
 
             else:
-                # ── 케이스 1/2: Photoroom 호출 ──
+                # 누끼 포함 (Photoroom 호출)
                 pr_config = {
                     "background.color": bg_color,
                     "export.format": "jpg",
@@ -4804,14 +4874,12 @@ class ImageEditPipeline:
                     "padding": "0.1",
                     "scaling": "fit",
                 }
-                if not is_detail:
-                    # 케이스 1: full → 그림자 포함
-                    _log(f"  [경로] 전체컷 → Photoroom 배경+그림자({shadow_mode})", "info")
+                if do_shadow:
+                    _log(f"  [경로] Photoroom 배경+그림자({shadow_mode})", "info")
                     pr_config["shadow.mode"] = shadow_mode
                     pr_config["shadow.opacity"] = str(shadow_opacity)
                 else:
-                    # 케이스 2: 디테일 + 흰배경 → 그림자 없이 배경만
-                    _log("  [경로] 디테일컷 + 흰배경 → Photoroom 배경만", "info")
+                    _log("  [경로] Photoroom 배경만 (그림자 없음)", "info")
 
                 result_bytes = self._photoroom.process(
                     image_bytes, image_type, background,
@@ -4821,33 +4889,36 @@ class ImageEditPipeline:
                     return {"success": False, "error": "Photoroom 응답 없음", "path": image_path}
                 _log(f"  Photoroom 완료 ({len(result_bytes)//1024}KB)", "success")
 
-                # 케이스 2 전용: 누끼 품질 검증 → 불량이면 원본으로 롤백
-                claid_input = result_bytes
-                if is_detail:
-                    _log("  [검증] 누끼 품질 확인 중...", "info")
-                    nukki_ok, nukki_reason = self._check_detail_nukki_quality(
-                        result_bytes, on_log=_log)
-                    if nukki_ok:
-                        _log(f"  누끼 품질 양호 → Claid 처리", "success")
+                if do_enhance:
+                    claid_input = result_bytes
+                    if is_detail:
+                        _log("  [검증] 누끼 품질 확인 중...", "info")
+                        nukki_ok, nukki_reason = self._check_detail_nukki_quality(
+                            result_bytes, on_log=_log)
+                        if nukki_ok:
+                            _log(f"  누끼 품질 양호 → Claid 처리", "success")
+                        else:
+                            _log(f"  누끼 품질 불량 ({nukki_reason}) → 원본으로 대체 후 Claid", "warn")
+                            claid_input = image_bytes
+                    current_bytes = self._claid.process(claid_input, image_type, config=claid_config)
+                    if not current_bytes:
+                        current_bytes = result_bytes
+                        _log("  Claid 응답 없음 → Photoroom 결과 사용", "warn")
                     else:
-                        _log(f"  누끼 품질 불량 ({nukki_reason}) → 원본으로 대체 후 Claid", "warn")
-                        claid_input = image_bytes
-
-                current_bytes = self._claid.process(claid_input, image_type, config=claid_config)
-                if not current_bytes:
-                    current_bytes = claid_input
-                    _log("  Claid 응답 없음 → 이전 결과 사용", "warn")
+                        _log(f"  Claid 완료 ({len(current_bytes)//1024}KB)", "success")
                 else:
-                    _log(f"  Claid 완료 ({len(current_bytes)//1024}KB)", "success")
+                    current_bytes = result_bytes
 
             # 저장
             output_path = Path(output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
-            namer = FileNamer(f"{idx:03d}")
+            namer = FileNamer(FileNamer.extract_base_from_path(image_path))
             file_name = namer.next_name(".jpg")
             file_path = output_path / file_name
             info = self._optimizer.save_from_bytes(current_bytes, str(file_path), max_size_kb)
             _log(f"  출력: {file_name} ({info['size_kb']}KB)", "success")
+            # 진행 로그 기록 (성공)
+            _update_progress_log(output_dir, Path(image_path).name, True)
             return {
                 "success": True, "files": [info], "path": image_path,
                 "image_type": image_type, "background": background,
@@ -4859,6 +4930,11 @@ class ImageEditPipeline:
             import traceback
             _log(f"  오류: {e}", "error")
             _log(traceback.format_exc(), "error")
+            # 진행 로그 기록 (실패)
+            try:
+                _update_progress_log(output_dir, Path(image_path).name, False)
+            except Exception:
+                pass
             return {"success": False, "error": str(e), "path": image_path}
 
     def _check_detail_nukki_quality(self, result_bytes: bytes,
