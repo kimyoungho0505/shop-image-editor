@@ -5234,8 +5234,12 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
 
         def _toggle_all():
             val = all_check_var.get()
-            for v in file_check_vars.values():
+            for f, v in file_check_vars.items():
                 v.set(val)
+                if f in file_rows and "lbl_chk" in file_rows[f]:
+                    w = file_rows[f]["lbl_chk"]
+                    w.config(text="☑" if val else "☐",
+                             fg=VF_ACCENT if val else VF_TEXT_DIM)
             _update_del_btn()
 
         del_bar = tk.Frame(left, bg=VF_BG)
@@ -5281,13 +5285,28 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
             row = tk.Frame(parent, bg=VF_BG, cursor="hand2", padx=0, pady=0)
             row.pack(fill="x", padx=4, pady=2)
 
+            # 체크박스 컬럼 (유니코드 토글 라벨)
+            chk_var = tk.BooleanVar(value=False)
+            file_check_vars[fname] = chk_var
+            lbl_chk = tk.Label(row, text="☐", bg=VF_BG, fg=VF_TEXT_DIM,
+                               font=(FONT_FAMILY, 11), cursor="hand2", width=2)
+            lbl_chk.pack(side="left", padx=(4, 0))
+
+            def _toggle_chk(e, f=fname):
+                new_val = not file_check_vars[f].get()
+                file_check_vars[f].set(new_val)
+                e.widget.config(text="☑" if new_val else "☐",
+                                fg=VF_ACCENT if new_val else VF_TEXT_DIM)
+                _update_del_btn()
+            lbl_chk.bind("<Button-1>", _toggle_chk)
+
             # 좌측 선택 표시 바
             sel_bar = tk.Frame(row, bg=VF_BG, width=3)
             sel_bar.pack(side="left", fill="y")
 
             # 컨텐츠 영역
             content = tk.Frame(row, bg=VF_BG)
-            content.pack(side="left", fill="x", expand=True, padx=(4, 2), pady=3)
+            content.pack(side="left", fill="x", expand=True, padx=(2, 2), pady=3)
 
             # 상단: 아이콘 + 파일명
             top = tk.Frame(content, bg=VF_BG)
@@ -5297,17 +5316,7 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
             icon_map = {"done": "\u2705", "processing": "\u23f3", "fail": "\u274c"}
             icon = icon_map.get(status, "\u2b1c")
             lbl_icon = tk.Label(top, text=icon, bg=VF_BG, font=(FONT_FAMILY, 10))
-            lbl_icon.pack(side="left", padx=(0, 6))
-
-            # 체크박스 — lbl_name보다 먼저 pack해야 우측 공간 확보
-            chk_var = tk.BooleanVar(value=False)
-            file_check_vars[fname] = chk_var
-            chk = tk.Checkbutton(
-                top, variable=chk_var, bg=VF_BG, activebackground=VF_BG,
-                selectcolor=VF_CARD, relief="flat", bd=0,
-                command=_update_del_btn
-            )
-            chk.pack(side="right", padx=(2, 2))
+            lbl_icon.pack(side="left", padx=(0, 4))
 
             lbl_name = tk.Label(top, text=fname, bg=VF_BG, fg=VF_TEXT,
                                 font=(FONT_FAMILY, 9), anchor="w", cursor="hand2")
@@ -5359,6 +5368,7 @@ class App(TkinterDnD.Tk if _HAS_DND else tk.Tk):
                 "lbl_stage_text": lbl_stage_text, "lbl_result": lbl_result,
                 "val_icons": val_icons,
                 "status_val_frame": status_val_frame, "idx": idx, "top": top,
+                "lbl_chk": lbl_chk,
             }
 
             # 클릭 바인딩
