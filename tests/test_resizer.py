@@ -108,3 +108,22 @@ class TestMultiSizeResizerSaveOriginal:
 
         with Image.open(result) as out:
             assert out.size == (2250, 2250)
+
+    def test_save_original_handles_rgba_input(self, tmp_path, settings):
+        """RGBA bytes는 흰 배경에 합성되어 RGB JPEG로 저장된다."""
+        from src.exporter.resizer import MultiSizeResizer
+        # 반투명 빨강 RGBA
+        img = Image.new("RGBA", (2250, 2250), (255, 0, 0, 128))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        r = MultiSizeResizer(tmp_path, settings)
+
+        result = r.save_original(buf.getvalue(), "rgba_test")
+
+        assert result is not None and result.exists()
+        with Image.open(result) as out:
+            assert out.mode == "RGB"
+            assert out.size == (2250, 2250)
+            # 알파 합성 → 빨강+흰 = 분홍 (대략 R>200, G>100, B>100)
+            r_, g_, b_ = out.getpixel((1125, 1125))
+            assert r_ > 200 and g_ > 100 and b_ > 100

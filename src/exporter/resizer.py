@@ -65,7 +65,8 @@ class MultiSizeResizer:
             else:
                 img = img.convert("RGB")
 
-        q = self.quality
+        q = max(int(self.quality), 60)
+        buf = io.BytesIO()
         while q >= 60:
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=q, optimize=True)
@@ -73,16 +74,22 @@ class MultiSizeResizer:
                 break
             q -= 5
 
+        size_kb = buf.tell() // 1024
+        if size_kb > self.max_kb:
+            logger.warning(
+                f"[Resizer] {dest.name}: 최소 품질(60)에서도 한도 초과 "
+                f"({size_kb}KB > {self.max_kb}KB)")
+
         with open(dest, "wb") as f:
             f.write(buf.getvalue())
-        logger.debug(f"[Resizer] 저장: {dest} (품질={q}, {buf.tell()//1024}KB)")
+        logger.debug(f"[Resizer] 저장: {dest} (품질={q}, {size_kb}KB)")
         return dest
 
     def _bytes_to_image(self, img_bytes: bytes) -> Image.Image:
         return Image.open(io.BytesIO(img_bytes)).copy()
 
     # ── 공개 메서드 ─────────────────────────────────────────
-    def save_original(self, img_bytes: bytes, original_stem: str) -> Path:
+    def save_original(self, img_bytes: bytes, original_stem: str) -> Path | None:
         """output/original/{stem}_1.jpg 로 보존."""
         po = self.cfg.get("preserve_original", {})
         if not po.get("enabled", True):
