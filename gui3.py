@@ -1735,6 +1735,29 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 self._log_unified(f"[{fname}] 오류: {e}", "error")
                 self._log_unified(traceback.format_exc(), "error")
                 result = {"success": False, "error": str(e), "path": img_path}
+
+            # ── 멀티 사이즈 리사이즈 ─────────────────────────
+            if result.get("success") and result.get("final_bytes"):
+                try:
+                    stem = result.get("original_stem") or Path(img_path).stem
+                    self._batch_resizer.save_original(
+                        result["final_bytes"], stem)
+                    n = self._batch_counter.next()
+                    is_first = self._batch_counter.is_first()
+                    rs = self._batch_resizer.make_resized_set(
+                        result["final_bytes"], seq_n=n, is_first=is_first)
+                    result["resized"] = {
+                        "size_1500": str(rs["size_1500"]) if rs["size_1500"] else None,
+                        "size_860":  str(rs["size_860"])  if rs["size_860"]  else None,
+                        "crop":      str(rs["crop"])      if rs["crop"]      else None,
+                    }
+                    extra = ", crop/main.jpg" if is_first else ""
+                    self._log_unified(
+                        f"  📐 멀티 출력: 1500/{n}.jpg, 860/100_{n}.jpg{extra}",
+                        "success")
+                except Exception as _re:
+                    self._log_unified(f"  ⚠️ 리사이즈 실패: {_re}", "warning")
+
             with lock:
                 self._vf_complete_file(vf_idx, result)
                 # 라우팅 정보 저장 (뷰파인더 표시용)
