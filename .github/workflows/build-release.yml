@@ -1,0 +1,92 @@
+name: Build & Release EXE
+
+# v1.2.3 형태의 태그 푸시 시 자동 빌드 & GitHub Release 등록
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write   # Release 생성 + 에셋 업로드 권한
+
+jobs:
+  build:
+    runs-on: windows-latest   # Windows EXE 빌드
+
+    steps:
+      # ── 코드 체크아웃 ─────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Python 설정 ───────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ── 의존성 설치 ───────────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # SAM/PyTorch 제외하고 나머지 설치
+          pip install `
+            requests anthropic openai google-genai `
+            Pillow numpy opencv-python `
+            python-dotenv pyyaml loguru `
+            pyinstaller
+
+      # ── 버전 태그에서 버전 번호 추출 ────────────────────────────
+      - name: Extract version
+        id: ver
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      # ── version.py 버전 번호 업데이트 ───────────────────────────
+      - name: Update version.py
+        shell: python
+        run: |
+          import re, pathlib
+          ver = "${{ steps.ver.outputs.version }}"
+          path = pathlib.Path("version.py")
+          text = path.read_text(encoding="utf-8")
+          text = re.sub(r'__version__\s*=\s*"[^"]+"', f'__version__ = "{ver}"', text)
+          path.write_text(text, encoding="utf-8")
+          print(f"version.py → {ver}")
+
+      # ── PyInstaller 빌드 ──────────────────────────────────────
+      - name: Build EXE
+        run: pyinstaller gui3.spec --clean --noconfirm
+
+      # ── EXE 이름에 버전 추가 ─────────────────────────────────
+      - name: Rename EXE
+        shell: bash
+        run: |
+          mv dist/LUXBOY_ShopEditor.exe dist/LUXBOY_ShopEditor_v${{ steps.ver.outputs.version }}.exe
+
+      # ── GitHub Release 생성 & EXE 업로드 ──────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "LUXBOY Shop Editor ${{ github.ref_name }}"
+          body: |
+            ## 변경사항
+            이 릴리즈의 변경사항은 [history.md](https://github.com/${{ github.repository }}/blob/main/history.md)를 참고하세요.
+
+            ## 설치 방법
+            1. 아래 `LUXBOY_ShopEditor_v*.exe` 를 다운로드
+            2. EXE와 같은 폴더에 `.env` 파일 생성 (API 키 입력)
+            3. EXE 실행
+
+            ## .env 파일 형식
+            ```
+            ANTHROPIC_API_KEY=...
+            OPENAI_API_KEY=...
+            GEMINI_API_KEY=...
+            PHOTOROOM_API_KEY=...
+            REMOVEBG_API_KEY=...
+            CLAID_API_KEY=...
+            ```
+          files: dist/LUXBOY_ShopEditor_v${{ steps.ver.outputs.version }}.exe
+          draft: false
+          prerelease: false

@@ -512,6 +512,92 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self._build_ui()
         self._load_configs()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        # 앱 시작 3초 후 백그라운드에서 업데이트 체크
+        self.after(3000, self._schedule_update_check)
+
+    # ──────────────────────────────────────────────────────────
+    # 자동 업데이트
+    # ──────────────────────────────────────────────────────────
+
+    def _schedule_update_check(self):
+        """앱 시작 후 백그라운드에서 업데이트 체크."""
+        try:
+            from src.updater import check_update_in_background
+            check_update_in_background(
+                on_update_found=self._on_update_found,
+            )
+        except Exception:
+            pass   # 업데이터 로드 실패 시 조용히 무시
+
+    def _on_update_found(self, info):
+        """새 버전 발견 시 메인 스레드에서 알림 다이얼로그 표시."""
+        self.after(0, lambda: self._show_update_dialog(info))
+
+    def _show_update_dialog(self, info):
+        """업데이트 알림 다이얼로그."""
+        from src.updater import download_update, apply_update
+
+        try:
+            from version import __version__
+        except ImportError:
+            __version__ = "?"
+
+        notes = info.release_notes.strip()
+        msg = (
+            f"새 버전 {info.version} 이 출시되었습니다!\n"
+            f"현재 버전: {__version__}\n\n"
+            + (f"📋 변경사항:\n{notes}\n\n" if notes else "")
+            + "지금 업데이트하시겠습니까?\n"
+            "(업데이트 후 앱이 자동으로 재시작됩니다)"
+        )
+
+        if not messagebox.askyesno("업데이트 알림", msg, parent=self):
+            return
+
+        # 진행 다이얼로그
+        dlg = tk.Toplevel(self)
+        dlg.title("업데이트 다운로드")
+        dlg.geometry("380x120")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.configure(bg=CARD_BG)
+
+        tk.Label(dlg, text=f"{info.version} 다운로드 중...",
+                 bg=CARD_BG, font=(FONT_FAMILY, 10)).pack(pady=(18, 4))
+        var_prog = tk.DoubleVar()
+        bar = ttk.Progressbar(dlg, variable=var_prog, maximum=100, length=320)
+        bar.pack(pady=4)
+        lbl_pct = tk.Label(dlg, text="0%", bg=CARD_BG, font=(FONT_FAMILY, 9))
+        lbl_pct.pack()
+
+        def _on_progress(done, total):
+            pct = done / total * 100
+            def _upd():
+                var_prog.set(pct)
+                lbl_pct.config(text=f"{pct:.0f}%  ({done//1024}KB / {total//1024}KB)")
+            self.after(0, _upd)
+
+        def _download():
+            try:
+                new_exe = download_update(info.download_url, on_progress=_on_progress)
+                self.after(0, lambda: _finish(new_exe))
+            except Exception as e:
+                self.after(0, lambda err=str(e): (
+                    dlg.destroy(),
+                    messagebox.showerror("다운로드 실패", f"업데이트 다운로드 실패:\n{err}", parent=self)
+                ))
+
+        def _finish(new_exe: str):
+            dlg.destroy()
+            messagebox.showinfo(
+                "업데이트 준비 완료",
+                "다운로드 완료! 앱을 종료하고 업데이트를 적용합니다.\n잠시만 기다려주세요.",
+                parent=self
+            )
+            apply_update(new_exe)
+
+        import threading as _th
+        _th.Thread(target=_download, daemon=True).start()
 
     def _restart_app(self):
         self._save_state()
