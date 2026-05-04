@@ -100,3 +100,68 @@ class MultiSizeResizer:
         dest = self.output_dir / sub / fname
         img = self._bytes_to_image(img_bytes)
         return self._save_jpeg(img, dest)
+
+    def _ensure_base_size(self, img: Image.Image) -> Image.Image:
+        """입력이 base_size와 다르면 리사이즈 (경고 로그)."""
+        base = int(self.cfg.get("base_size", 2250))
+        if img.size != (base, base):
+            logger.warning(
+                f"[Resizer] 입력 사이즈 {img.size} != base {base}×{base} "
+                f"— 자동 리사이즈"
+            )
+            img = img.resize((base, base), Image.LANCZOS)
+        return img
+
+    def make_resized_set(
+        self,
+        img_bytes: bytes,
+        seq_n: int,
+        is_first: bool,
+        on_log: Callable[[str], None] = None,
+    ) -> dict:
+        """3종 리사이즈 결과 생성.
+
+        Returns: {"size_1500": Path|None, "size_860": Path|None, "crop": Path|None}
+        """
+        variants = self.cfg.get("variants", {})
+        result = {"size_1500": None, "size_860": None, "crop": None}
+
+        img = self._ensure_base_size(self._bytes_to_image(img_bytes))
+
+        # size_1500
+        v = variants.get("size_1500", {})
+        if v.get("enabled", True):
+            target = int(v.get("size", 1500))
+            sub = v.get("subfolder", "1500")
+            naming = v.get("naming", "{n}.jpg")
+            dest = self.output_dir / sub / naming.format(n=seq_n)
+            resized = img.resize((target, target), Image.LANCZOS)
+            result["size_1500"] = self._save_jpeg(resized, dest)
+
+        # size_860
+        v = variants.get("size_860", {})
+        if v.get("enabled", True):
+            target = int(v.get("size", 860))
+            sub = v.get("subfolder", "860")
+            naming = v.get("naming", "100_{n}.jpg")
+            dest = self.output_dir / sub / naming.format(n=seq_n)
+            resized = img.resize((target, target), Image.LANCZOS)
+            result["size_860"] = self._save_jpeg(resized, dest)
+
+        # crop_vertical (is_first일 때만 자동 생성)
+        v = variants.get("crop_vertical", {})
+        if v.get("enabled", True) and (is_first or not v.get("first_only", True)):
+            result["crop"] = self._do_crop(img, v)
+
+        return result
+
+    def _do_crop(self, img: Image.Image, v: dict) -> Path:
+        """1500×2250 크롭 (좌우 375 절단)."""
+        cl = int(v.get("crop_left", 375))
+        cr = int(v.get("crop_right", 375))
+        w, h = img.size
+        cropped = img.crop((cl, 0, w - cr, h))
+        sub = v.get("subfolder", "crop")
+        fname = v.get("filename", "main.jpg")
+        dest = self.output_dir / sub / fname
+        return self._save_jpeg(cropped, dest)

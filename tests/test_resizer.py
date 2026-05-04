@@ -127,3 +127,53 @@ class TestMultiSizeResizerSaveOriginal:
             # 알파 합성 → 빨강+흰 = 분홍 (대략 R>200, G>100, B>100)
             r_, g_, b_ = out.getpixel((1125, 1125))
             assert r_ > 200 and g_ > 100 and b_ > 100
+
+
+class TestMakeResizedSet:
+    @pytest.fixture
+    def full_settings(self):
+        return {
+            "resize": {
+                "enabled": True,
+                "base_size": 2250,
+                "variants": {
+                    "size_1500": {"enabled": True, "size": 1500,
+                                  "subfolder": "1500", "naming": "{n}.jpg"},
+                    "size_860": {"enabled": True, "size": 860,
+                                 "subfolder": "860", "naming": "100_{n}.jpg"},
+                    "crop_vertical": {"enabled": True, "width": 1500, "height": 2250,
+                                      "crop_left": 375, "crop_right": 375,
+                                      "subfolder": "crop", "filename": "main.jpg",
+                                      "first_only": True},
+                },
+                "preserve_original": {"enabled": True, "subfolder": "original",
+                                      "naming": "{stem}_1.jpg"},
+                "jpeg_max_size_kb": 2024,
+                "jpeg_quality": 90,
+            }
+        }
+
+    def test_make_resized_set_creates_1500_and_860(self, tmp_path, full_settings):
+        from src.exporter.resizer import MultiSizeResizer
+        r = MultiSizeResizer(tmp_path, full_settings)
+        img_bytes = _make_test_image_bytes(2250)
+
+        result = r.make_resized_set(img_bytes, seq_n=1, is_first=False)
+
+        assert result["size_1500"].exists()
+        assert result["size_860"].exists()
+        assert result["crop"] is None  # is_first=False
+        with Image.open(result["size_1500"]) as im:
+            assert im.size == (1500, 1500)
+        with Image.open(result["size_860"]) as im:
+            assert im.size == (860, 860)
+
+    def test_naming_uses_seq_n(self, tmp_path, full_settings):
+        from src.exporter.resizer import MultiSizeResizer
+        r = MultiSizeResizer(tmp_path, full_settings)
+        img_bytes = _make_test_image_bytes(2250)
+
+        r.make_resized_set(img_bytes, seq_n=3, is_first=False)
+
+        assert (tmp_path / "1500" / "3.jpg").exists()
+        assert (tmp_path / "860" / "100_3.jpg").exists()
