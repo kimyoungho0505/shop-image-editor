@@ -1645,16 +1645,76 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             except (ClaidNoCreditError, PhotoroomNoCreditError) as e:
                 # 크레딧 부족 → 모든 처리 즉시 중단 + 팝업 알림
                 self._unified_processing = False
-                svc = "Claid.ai" if isinstance(e, ClaidNoCreditError) else "Photoroom"
+                is_claid = isinstance(e, ClaidNoCreditError)
+                svc = "Claid.ai" if is_claid else "Photoroom"
+                charge_url = (
+                    "https://claid.ai/dashboard/billing"
+                    if is_claid else
+                    "https://app.photoroom.com/api-dashboard"
+                )
+                done_cnt = completed[0]
                 self._log_unified(
-                    f"❌ {svc} 크레딧 부족 — 모든 처리를 즉시 중지합니다. "
-                    f"({completed[0]}/{total})", "error")
-                self.after(0, lambda msg=str(e), s=svc: messagebox.showerror(
-                    f"{s} 크레딧 부족 — 처리 중단",
-                    f"{msg}\n\n모든 처리가 즉시 중단되었습니다.\n"
-                    f"완료: {completed[0]}장 / 전체: {total}장\n\n"
-                    f"완료 목록에서 반쪽 처리된 항목을 삭제 후 재시작하세요.",
-                    parent=self))
+                    f"❌ {svc} 크레딧이 모두 소진되었습니다 — 모든 처리를 즉시 중지합니다. "
+                    f"(완료 {done_cnt}/{total}장)", "error")
+                self._log_unified(
+                    f"   💳 크레딧 충전 페이지: {charge_url}", "error")
+
+                def _show_credit_error(s=svc, url=charge_url, done=done_cnt):
+                    import tkinter as _tk
+                    dlg = _tk.Toplevel(self)
+                    dlg.title(f"⚠️ {s} 크레딧 소진 — 처리 중단")
+                    dlg.resizable(False, False)
+                    dlg.grab_set()
+                    dlg.focus_set()
+                    # 아이콘/본문
+                    frm = _tk.Frame(dlg, padx=20, pady=16)
+                    frm.pack(fill="both", expand=True)
+                    _tk.Label(
+                        frm,
+                        text=f"⚠️  {s} 크레딧이 모두 소진되었습니다.",
+                        font=("맑은 고딕", 12, "bold"),
+                        fg="#c0392b",
+                        anchor="w",
+                    ).pack(fill="x", pady=(0, 8))
+                    _tk.Label(
+                        frm,
+                        text=(
+                            f"크레딧 부족으로 인해 이미지 처리가 즉시 중단되었습니다.\n\n"
+                            f"  • 완료된 이미지: {done}장\n"
+                            f"  • 미처리 이미지: {total - done}장\n\n"
+                            f"아래 링크에서 크레딧을 충전한 후 다시 시도해 주세요."
+                        ),
+                        font=("맑은 고딕", 10),
+                        justify="left",
+                        anchor="w",
+                    ).pack(fill="x")
+                    # 충전 링크 (클릭 시 브라우저 오픈)
+                    import webbrowser as _wb
+                    link = _tk.Label(
+                        frm,
+                        text=f"🔗 {url}",
+                        font=("맑은 고딕", 9, "underline"),
+                        fg="#2980b9",
+                        cursor="hand2",
+                        anchor="w",
+                    )
+                    link.pack(fill="x", pady=(6, 0))
+                    link.bind("<Button-1>", lambda _e: _wb.open(url))
+                    # 닫기 버튼
+                    _tk.Button(
+                        dlg,
+                        text="확인",
+                        width=10,
+                        command=dlg.destroy,
+                        font=("맑은 고딕", 10),
+                    ).pack(pady=(0, 14))
+                    # 창 중앙 배치
+                    dlg.update_idletasks()
+                    x = self.winfo_x() + (self.winfo_width() - dlg.winfo_width()) // 2
+                    y = self.winfo_y() + (self.winfo_height() - dlg.winfo_height()) // 2
+                    dlg.geometry(f"+{x}+{y}")
+
+                self.after(0, _show_credit_error)
                 result = {"success": False, "error": str(e), "path": img_path}
             except Exception as e:
                 import traceback
