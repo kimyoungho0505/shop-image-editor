@@ -177,3 +177,63 @@ class TestMakeResizedSet:
 
         assert (tmp_path / "1500" / "3.jpg").exists()
         assert (tmp_path / "860" / "100_3.jpg").exists()
+
+
+class TestCropVertical:
+    @pytest.fixture
+    def full_settings(self):
+        return {
+            "resize": {
+                "enabled": True,
+                "base_size": 2250,
+                "variants": {
+                    "size_1500": {"enabled": True, "size": 1500,
+                                  "subfolder": "1500", "naming": "{n}.jpg"},
+                    "size_860": {"enabled": True, "size": 860,
+                                 "subfolder": "860", "naming": "100_{n}.jpg"},
+                    "crop_vertical": {"enabled": True, "width": 1500, "height": 2250,
+                                      "crop_left": 375, "crop_right": 375,
+                                      "subfolder": "crop", "filename": "main.jpg",
+                                      "first_only": True},
+                },
+                "preserve_original": {"enabled": True, "subfolder": "original",
+                                      "naming": "{stem}_1.jpg"},
+                "jpeg_max_size_kb": 2024,
+                "jpeg_quality": 90,
+            }
+        }
+
+    def test_crop_only_when_is_first_true(self, tmp_path, full_settings):
+        from src.exporter.resizer import MultiSizeResizer
+        r = MultiSizeResizer(tmp_path, full_settings)
+        img_bytes = _make_test_image_bytes(2250)
+
+        result = r.make_resized_set(img_bytes, seq_n=1, is_first=True)
+
+        assert result["crop"] is not None
+        assert result["crop"].exists()
+        assert result["crop"].name == "main.jpg"
+        with Image.open(result["crop"]) as im:
+            assert im.size == (1500, 2250)
+
+    def test_crop_pixel_correctness(self, tmp_path, full_settings):
+        """좌측 첫 픽셀이 입력의 (375,0) 픽셀과 일치하는지 검증."""
+        from src.exporter.resizer import MultiSizeResizer
+        # 좌→우 그라데이션 생성: x=0 검정, x=2249 흰색
+        img = Image.new("RGB", (2250, 2250), (0, 0, 0))
+        px = img.load()
+        for x in range(2250):
+            v = int(255 * x / 2249)
+            for y in range(2250):
+                px[x, y] = (v, v, v)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=95)
+
+        r = MultiSizeResizer(tmp_path, full_settings)
+        result = r.make_resized_set(buf.getvalue(), seq_n=1, is_first=True)
+
+        with Image.open(result["crop"]) as cropped:
+            assert cropped.size == (1500, 2250)
+            cropped_left = cropped.getpixel((0, 1125))[0]
+            expected = int(255 * 375 / 2249)
+            assert abs(cropped_left - expected) <= 5  # JPEG 손실 허용
