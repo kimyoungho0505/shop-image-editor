@@ -1,13 +1,23 @@
 """resizer 모듈 단위 테스트."""
+import io
 import sys
 from pathlib import Path
 import threading
 import pytest
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.exporter.resizer import BatchCounter
+
+
+def _make_test_image_bytes(size: int = 2250, color=(128, 64, 32)) -> bytes:
+    """테스트용 단색 JPEG 바이트 생성."""
+    img = Image.new("RGB", (size, size), color)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=95)
+    return buf.getvalue()
 
 
 class TestBatchCounter:
@@ -60,3 +70,41 @@ class TestBatchCounter:
         for t in threads: t.join()
 
         assert len(wins) == 1
+
+
+class TestMultiSizeResizerSaveOriginal:
+    @pytest.fixture
+    def settings(self):
+        return {
+            "resize": {
+                "enabled": True,
+                "base_size": 2250,
+                "preserve_original": {
+                    "enabled": True,
+                    "subfolder": "original",
+                    "naming": "{stem}_1.jpg",
+                },
+                "jpeg_max_size_kb": 2024,
+            }
+        }
+
+    def test_save_original_creates_subfolder_and_file(self, tmp_path, settings):
+        from src.exporter.resizer import MultiSizeResizer
+        r = MultiSizeResizer(tmp_path, settings)
+        img_bytes = _make_test_image_bytes(2250)
+
+        result = r.save_original(img_bytes, "product_001")
+
+        assert result.exists()
+        assert result.parent.name == "original"
+        assert result.name == "product_001_1.jpg"
+
+    def test_save_original_preserves_2250_size(self, tmp_path, settings):
+        from src.exporter.resizer import MultiSizeResizer
+        r = MultiSizeResizer(tmp_path, settings)
+        img_bytes = _make_test_image_bytes(2250)
+
+        result = r.save_original(img_bytes, "product_001")
+
+        with Image.open(result) as out:
+            assert out.size == (2250, 2250)

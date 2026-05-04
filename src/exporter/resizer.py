@@ -39,3 +39,57 @@ class BatchCounter:
                 return False
             self._first_consumed = True
             return True
+
+
+class MultiSizeResizer:
+    """편집 완료 이미지(bytes) → 4종 출력 저장.
+
+    settings: dict — config/settings.yaml의 'resize' 섹션
+    """
+
+    def __init__(self, output_dir: Path | str, settings: dict):
+        self.output_dir = Path(output_dir)
+        self.cfg = (settings or {}).get("resize", {})
+        self.max_kb = int(self.cfg.get("jpeg_max_size_kb", 2024))
+        self.quality = int(self.cfg.get("jpeg_quality", 95))
+
+    # ── 내부 ────────────────────────────────────────────────
+    def _save_jpeg(self, img: Image.Image, dest: Path) -> Path:
+        """JPEG 저장 — 품질 자동 조정으로 max_kb 이하."""
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if img.mode != "RGB":
+            if img.mode == "RGBA":
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                bg.paste(img, mask=img.split()[3])
+                img = bg
+            else:
+                img = img.convert("RGB")
+
+        q = self.quality
+        while q >= 60:
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=q, optimize=True)
+            if buf.tell() / 1024 <= self.max_kb:
+                break
+            q -= 5
+
+        with open(dest, "wb") as f:
+            f.write(buf.getvalue())
+        logger.debug(f"[Resizer] 저장: {dest} (품질={q}, {buf.tell()//1024}KB)")
+        return dest
+
+    def _bytes_to_image(self, img_bytes: bytes) -> Image.Image:
+        return Image.open(io.BytesIO(img_bytes)).copy()
+
+    # ── 공개 메서드 ─────────────────────────────────────────
+    def save_original(self, img_bytes: bytes, original_stem: str) -> Path:
+        """output/original/{stem}_1.jpg 로 보존."""
+        po = self.cfg.get("preserve_original", {})
+        if not po.get("enabled", True):
+            return None
+        sub = po.get("subfolder", "original")
+        naming = po.get("naming", "{stem}_1.jpg")
+        fname = naming.format(stem=original_stem)
+        dest = self.output_dir / sub / fname
+        img = self._bytes_to_image(img_bytes)
+        return self._save_jpeg(img, dest)
