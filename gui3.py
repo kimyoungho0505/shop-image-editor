@@ -2791,6 +2791,16 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                                fg=VF_TEXT_FAINT, font=(FONT_FAMILY, 8))
                 val_icons[key] = lbl
 
+            # 카드별 액션 버튼 행 (리사이즈 등)
+            card_btn_row = tk.Frame(content, bg=VF_BG)
+            card_btn_row.pack(fill="x", padx=(20, 2), pady=(2, 0))
+            tk.Button(
+                card_btn_row, text="리사이즈",
+                command=lambda i=idx: self._vf_open_resize_dialog(i),
+                font=("맑은 고딕", 8),
+                bg="#34495e", fg="white", padx=6, bd=0, cursor="hand2",
+            ).pack(side="left", padx=2)
+
             file_rows[fname] = {
                 "frame": row, "sel_bar": sel_bar, "content": content,
                 "pips": pips, "lbl_icon": lbl_icon, "lbl_name": lbl_name,
@@ -4788,6 +4798,91 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             self._vf_dlg = None
             dlg.destroy()
         dlg.protocol("WM_DELETE_WINDOW", _on_dlg_close)
+
+    def _vf_open_resize_dialog(self, vf_idx: int):
+        """뷰파인더에서 개별 이미지 재리사이즈 다이얼로그."""
+        if vf_idx >= len(self._viewfinder_pairs):
+            return
+        item = self._viewfinder_pairs[vf_idx]
+
+        # 원본 보존 파일 경로 확보
+        orig = None
+        # 1) result["resized"]["original"]에서 (Task 9 추가)
+        resized = item.get("resized") or item.get("result", {}).get("resized")
+        if resized and resized.get("original"):
+            orig = Path(resized["original"])
+        # 2) output_dir/original/{stem}_1.jpg 추정
+        if orig is None or not orig.exists():
+            in_path = Path(item.get("input_path", ""))
+            stem = in_path.stem
+            candidates = []
+            for of in item.get("output_files", []):
+                p = Path(of.get("path", ""))
+                if p.parent.exists():
+                    candidates.append(p.parent.parent / "original" / f"{stem}_1.jpg")
+                    candidates.append(p.parent / "original" / f"{stem}_1.jpg")
+            for cand in candidates:
+                if cand.exists():
+                    orig = cand
+                    break
+        if not orig or not orig.exists():
+            messagebox.showerror(
+                "오류",
+                "원본 보존 파일을 찾을 수 없습니다.\n"
+                "먼저 편집을 실행해 주세요.",
+                parent=self._vf_dlg)
+            return
+
+        dlg = tk.Toplevel(self._vf_dlg)
+        dlg.title(f"리사이즈 — {orig.name}")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        f = tk.Frame(dlg, padx=18, pady=14); f.pack()
+        tk.Label(f, text=f"대상: {orig.name}",
+                 font=("맑은 고딕", 10, "bold")).pack(anchor="w", pady=(0, 8))
+
+        v_1500 = tk.BooleanVar(value=True)
+        v_860 = tk.BooleanVar(value=True)
+        v_crop = tk.BooleanVar(value=False)
+        v_over = tk.BooleanVar(value=True)
+        tk.Checkbutton(f, text="1500×1500", variable=v_1500).pack(anchor="w")
+        tk.Checkbutton(f, text="860×860", variable=v_860).pack(anchor="w")
+        tk.Checkbutton(f, text="1500×2250 크롭", variable=v_crop).pack(anchor="w")
+        tk.Checkbutton(f, text="기존 파일 덮어쓰기",
+                       variable=v_over).pack(anchor="w", pady=(8, 0))
+
+        def _run():
+            from src.exporter.resizer import MultiSizeResizer
+            try:
+                settings = load_yaml(SETTINGS_PATH)
+            except Exception:
+                settings = {}
+            out_dir = orig.parent.parent  # OUTPUT (orig은 OUTPUT/original/...)
+            resizer = MultiSizeResizer(out_dir, settings)
+            seq_n = vf_idx + 1
+            try:
+                resizer.resize_from_file(
+                    orig, seq_n=seq_n,
+                    variants={"size_1500": v_1500.get(),
+                              "size_860": v_860.get(),
+                              "crop": v_crop.get()},
+                    overwrite=v_over.get(),
+                )
+                dlg.destroy()
+                messagebox.showinfo("완료",
+                                    f"리사이즈 완료 — 순번 {seq_n}",
+                                    parent=self._vf_dlg)
+            except Exception as e:
+                messagebox.showerror("오류",
+                                     f"리사이즈 실패:\n{e}",
+                                     parent=dlg)
+
+        btn_row = tk.Frame(f); btn_row.pack(pady=(12, 0))
+        tk.Button(btn_row, text="실행", command=_run,
+                  bg="#3498db", fg="white", padx=14, pady=4).pack(side="left", padx=4)
+        tk.Button(btn_row, text="취소", command=dlg.destroy,
+                  padx=14, pady=4).pack(side="left", padx=4)
 
 
 
