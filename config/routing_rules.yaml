@@ -33,7 +33,8 @@ rules:
     enhance: true
     nukki: false
     shadow: false
-- conditions: {}
+- conditions:
+    is_label_cut: true
   id: full_shot
   name: 전체컷 (기본)
   processing:
@@ -43,7 +44,6 @@ rules:
 - conditions:
     image_type: mannequin
     is_label_cut: false
-    shooting_angle: front
   id: rule_6
   name: 마네킹 (정면)
   processing:
