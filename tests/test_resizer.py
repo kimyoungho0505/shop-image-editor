@@ -237,3 +237,64 @@ class TestCropVertical:
             cropped_left = cropped.getpixel((0, 1125))[0]
             expected = int(255 * 375 / 2249)
             assert abs(cropped_left - expected) <= 5  # JPEG 손실 허용
+
+
+class TestResizeFromFile:
+    @pytest.fixture
+    def full_settings(self):
+        return {
+            "resize": {
+                "enabled": True,
+                "base_size": 2250,
+                "variants": {
+                    "size_1500": {"enabled": True, "size": 1500,
+                                  "subfolder": "1500", "naming": "{n}.jpg"},
+                    "size_860": {"enabled": True, "size": 860,
+                                 "subfolder": "860", "naming": "100_{n}.jpg"},
+                    "crop_vertical": {"enabled": True, "width": 1500, "height": 2250,
+                                      "crop_left": 375, "crop_right": 375,
+                                      "subfolder": "crop", "filename": "main.jpg",
+                                      "first_only": True},
+                },
+                "preserve_original": {"enabled": True, "subfolder": "original",
+                                      "naming": "{stem}_1.jpg"},
+                "jpeg_max_size_kb": 2024,
+                "jpeg_quality": 90,
+            }
+        }
+
+    def test_resize_from_file_loads_and_outputs(self, tmp_path, full_settings):
+        from src.exporter.resizer import MultiSizeResizer
+        src_path = tmp_path / "input" / "product_1.jpg"
+        src_path.parent.mkdir(parents=True)
+        Image.new("RGB", (2250, 2250), (200, 100, 50)).save(src_path, "JPEG")
+
+        out_dir = tmp_path / "out"
+        r = MultiSizeResizer(out_dir, full_settings)
+        result = r.resize_from_file(
+            src_path, seq_n=2,
+            variants={"size_1500": True, "size_860": True, "crop": False},
+        )
+
+        assert (out_dir / "1500" / "2.jpg").exists()
+        assert (out_dir / "860" / "100_2.jpg").exists()
+        assert not (out_dir / "crop" / "main.jpg").exists()
+
+    def test_resize_from_file_respects_overwrite_false(self, tmp_path, full_settings):
+        from src.exporter.resizer import MultiSizeResizer
+        src_path = tmp_path / "p.jpg"
+        Image.new("RGB", (2250, 2250), (10, 10, 10)).save(src_path, "JPEG")
+
+        out_dir = tmp_path / "out"
+        existing = out_dir / "1500" / "1.jpg"
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"OLD")
+
+        r = MultiSizeResizer(out_dir, full_settings)
+        r.resize_from_file(
+            src_path, seq_n=1,
+            variants={"size_1500": True, "size_860": False, "crop": False},
+            overwrite=False,
+        )
+
+        assert existing.read_bytes() == b"OLD"

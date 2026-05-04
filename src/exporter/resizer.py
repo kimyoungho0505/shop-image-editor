@@ -165,3 +165,54 @@ class MultiSizeResizer:
         fname = v.get("filename", "main.jpg")
         dest = self.output_dir / sub / fname
         return self._save_jpeg(cropped, dest)
+
+    def resize_from_file(
+        self,
+        source_path: "Path | str",
+        seq_n: int,
+        variants: dict = None,
+        overwrite: bool = True,
+    ) -> dict:
+        """기존 파일에서 재리사이징 (재실행 탭, 뷰파인더 재리사이즈용).
+
+        variants: {"size_1500": bool, "size_860": bool, "crop": bool}
+        overwrite: False면 기존 파일 그대로 두고 스킵
+        """
+        if variants is None:
+            variants = {"size_1500": True, "size_860": True, "crop": False}
+
+        with open(source_path, "rb") as f:
+            img_bytes = f.read()
+
+        v_cfg = self.cfg.get("variants", {})
+        result = {"size_1500": None, "size_860": None, "crop": None}
+
+        img = self._ensure_base_size(self._bytes_to_image(img_bytes))
+
+        if variants.get("size_1500") and v_cfg.get("size_1500", {}).get("enabled", True):
+            v = v_cfg["size_1500"]
+            target = int(v.get("size", 1500))
+            dest = self.output_dir / v.get("subfolder", "1500") / v.get("naming", "{n}.jpg").format(n=seq_n)
+            if dest.exists() and not overwrite:
+                logger.info(f"[Resizer] 스킵(덮어쓰기 OFF): {dest}")
+            else:
+                result["size_1500"] = self._save_jpeg(img.resize((target, target), Image.LANCZOS), dest)
+
+        if variants.get("size_860") and v_cfg.get("size_860", {}).get("enabled", True):
+            v = v_cfg["size_860"]
+            target = int(v.get("size", 860))
+            dest = self.output_dir / v.get("subfolder", "860") / v.get("naming", "100_{n}.jpg").format(n=seq_n)
+            if dest.exists() and not overwrite:
+                logger.info(f"[Resizer] 스킵(덮어쓰기 OFF): {dest}")
+            else:
+                result["size_860"] = self._save_jpeg(img.resize((target, target), Image.LANCZOS), dest)
+
+        if variants.get("crop") and v_cfg.get("crop_vertical", {}).get("enabled", True):
+            v = v_cfg["crop_vertical"]
+            dest = self.output_dir / v.get("subfolder", "crop") / v.get("filename", "main.jpg")
+            if dest.exists() and not overwrite:
+                logger.info(f"[Resizer] 스킵(덮어쓰기 OFF): {dest}")
+            else:
+                result["crop"] = self._do_crop(img, v)
+
+        return result
