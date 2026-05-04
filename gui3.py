@@ -1738,20 +1738,25 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
             # ── 멀티 사이즈 리사이즈 ─────────────────────────
             if result.get("success") and result.get("final_bytes"):
+                stem = result.get("original_stem") or Path(img_path).stem
+                final_bytes = result["final_bytes"]
+                # 1) 원본 보존 (실패해도 배치 계속)
                 try:
-                    stem = result.get("original_stem") or Path(img_path).stem
-                    self._batch_resizer.save_original(
-                        result["final_bytes"], stem)
+                    self._batch_resizer.save_original(final_bytes, stem)
+                except Exception as _re:
+                    self._log_unified(f"  ⚠️ 원본 보존 실패: {_re}", "warning")
+                # 2) 멀티 사이즈 리사이즈 — 카운터는 성공 시에만 소비
+                try:
                     n = self._batch_counter.next()
                     is_first = self._batch_counter.is_first()
                     rs = self._batch_resizer.make_resized_set(
-                        result["final_bytes"], seq_n=n, is_first=is_first)
+                        final_bytes, seq_n=n, is_first=is_first)
                     result["resized"] = {
                         "size_1500": str(rs["size_1500"]) if rs["size_1500"] else None,
                         "size_860":  str(rs["size_860"])  if rs["size_860"]  else None,
                         "crop":      str(rs["crop"])      if rs["crop"]      else None,
                     }
-                    extra = ", crop/main.jpg" if is_first else ""
+                    extra = ", crop/main.jpg" if rs["crop"] is not None else ""
                     self._log_unified(
                         f"  📐 멀티 출력: 1500/{n}.jpg, 860/100_{n}.jpg{extra}",
                         "success")
