@@ -673,6 +673,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self.notebook.add(self.tab_conditions, text="  조건  ")
         self._build_conditions_tab()
 
+        # 리사이징 전용 탭
+        self.tab_resize = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_resize, text="  리사이징  ")
+        self._build_resize_tab()
+
         self.tab_settings = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_settings, text="  설정  ")
         self._build_settings_tab()
@@ -684,6 +689,153 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self.status_bar.pack(side="left", fill="x", expand=True)
         ttk.Button(bottom_bar, text="🔄 재시작", width=8,
                    command=self._restart_app).pack(side="right", padx=(6, 0))
+
+    # ── 리사이징 탭 ──
+    def _build_resize_tab(self):
+        """리사이징 전용 탭 — 이미 편집된 폴더에서 사이즈만 재생성."""
+        f = self.tab_resize
+        # 폴더 선택
+        row = tk.Frame(f); row.pack(fill="x", padx=12, pady=(12, 6))
+        tk.Label(row, text="입력 폴더:", width=10, anchor="w").pack(side="left")
+        self.var_resize_input = tk.StringVar()
+        tk.Entry(row, textvariable=self.var_resize_input).pack(
+            side="left", fill="x", expand=True)
+        tk.Button(row, text="폴더 선택",
+                  command=self._resize_pick_input).pack(side="left", padx=(6, 0))
+
+        # 출력 폴더
+        row = tk.Frame(f); row.pack(fill="x", padx=12, pady=6)
+        tk.Label(row, text="출력 폴더:", width=10, anchor="w").pack(side="left")
+        self.var_resize_output = tk.StringVar()
+        tk.Entry(row, textvariable=self.var_resize_output).pack(
+            side="left", fill="x", expand=True)
+        tk.Button(row, text="폴더 선택",
+                  command=self._resize_pick_output).pack(side="left", padx=(6, 0))
+
+        # 사이즈 옵션
+        opts = tk.LabelFrame(f, text="출력 사이즈", padx=10, pady=8)
+        opts.pack(fill="x", padx=12, pady=10)
+        self.var_resize_1500 = tk.BooleanVar(value=True)
+        self.var_resize_860 = tk.BooleanVar(value=True)
+        self.var_resize_crop = tk.BooleanVar(value=True)
+        tk.Checkbutton(opts, text="1500×1500 (output/1500/{n}.jpg)",
+                       variable=self.var_resize_1500).pack(anchor="w")
+        tk.Checkbutton(opts, text="860×860 (output/860/100_{n}.jpg)",
+                       variable=self.var_resize_860).pack(anchor="w")
+        tk.Checkbutton(opts, text="1500×2250 크롭 (output/crop/main.jpg, 첫 이미지만)",
+                       variable=self.var_resize_crop).pack(anchor="w")
+
+        # 덮어쓰기
+        row = tk.Frame(f); row.pack(fill="x", padx=12, pady=4)
+        self.var_resize_overwrite = tk.BooleanVar(value=True)
+        tk.Checkbutton(row, text="기존 파일 덮어쓰기",
+                       variable=self.var_resize_overwrite).pack(anchor="w")
+
+        # 실행 버튼 + 진행률
+        row = tk.Frame(f); row.pack(fill="x", padx=12, pady=10)
+        self.btn_resize_run = tk.Button(
+            row, text="리사이징 시작", command=self._resize_run,
+            font=("맑은 고딕", 11, "bold"), bg="#3498db", fg="white",
+            padx=20, pady=8)
+        self.btn_resize_run.pack(side="left")
+
+        self.var_resize_progress = tk.IntVar(value=0)
+        ttk.Progressbar(f, variable=self.var_resize_progress, maximum=100).pack(
+            fill="x", padx=12, pady=4)
+
+        # 로그
+        self.resize_log = scrolledtext.ScrolledText(
+            f, height=15, font=("Consolas", 9))
+        self.resize_log.pack(fill="both", expand=True, padx=12, pady=(4, 12))
+        self.resize_log.config(state="disabled")
+
+    def _resize_pick_input(self):
+        path = filedialog.askdirectory(title="리사이징 입력 폴더 선택")
+        if path:
+            self.var_resize_input.set(path)
+
+    def _resize_pick_output(self):
+        path = filedialog.askdirectory(title="리사이징 출력 폴더 선택")
+        if path:
+            self.var_resize_output.set(path)
+
+    def _resize_log(self, msg: str):
+        self.resize_log.config(state="normal")
+        self.resize_log.insert("end", msg + "\n")
+        self.resize_log.see("end")
+        self.resize_log.config(state="disabled")
+
+    def _resize_run(self):
+        """리사이징 전용 실행 — 별도 스레드."""
+        in_dir = self.var_resize_input.get().strip()
+        out_dir = self.var_resize_output.get().strip() or in_dir
+        if not in_dir or not Path(in_dir).is_dir():
+            messagebox.showerror("오류", "입력 폴더를 선택하세요.")
+            return
+
+        # 자연순 정렬
+        import re as _re
+        def _natural_key(p):
+            return [int(s) if s.isdigit() else s.lower()
+                    for s in _re.split(r"(\d+)", p.name)]
+        files = sorted(
+            [p for p in Path(in_dir).iterdir()
+             if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png")],
+            key=_natural_key,
+        )
+        if not files:
+            messagebox.showwarning("경고", "이미지 파일이 없습니다.")
+            return
+
+        v_1500 = self.var_resize_1500.get()
+        v_860 = self.var_resize_860.get()
+        v_crop = self.var_resize_crop.get()
+        if not (v_1500 or v_860 or v_crop):
+            messagebox.showwarning("경고", "최소 한 개 사이즈를 선택하세요.")
+            return
+
+        overwrite = self.var_resize_overwrite.get()
+        total = len(files)
+        self.btn_resize_run.config(state="disabled")
+        self.resize_log.config(state="normal")
+        self.resize_log.delete("1.0", "end")
+        self.resize_log.config(state="disabled")
+        self._resize_log(f"📐 리사이징 시작 — {total}장")
+
+        def _run():
+            try:
+                from src.exporter.resizer import BatchCounter, MultiSizeResizer
+                try:
+                    settings = load_yaml(SETTINGS_PATH)
+                except Exception:
+                    settings = {}
+                resizer = MultiSizeResizer(out_dir, settings)
+                counter = BatchCounter()
+
+                for i, src in enumerate(files, 1):
+                    n = counter.next()
+                    is_first = counter.is_first()
+                    variants = {
+                        "size_1500": v_1500,
+                        "size_860": v_860,
+                        "crop": v_crop and is_first,
+                    }
+                    try:
+                        resizer.resize_from_file(
+                            src, seq_n=n, variants=variants, overwrite=overwrite)
+                        self.after(0, lambda s=src.name, nn=n, ii=i:
+                                   self._resize_log(f"  ✓ [{ii}/{total}] {s} → 순번 {nn}"))
+                    except Exception as e:
+                        self.after(0, lambda s=src.name, err=str(e), ii=i:
+                                   self._resize_log(f"  ❌ [{ii}/{total}] {s}: {err}"))
+                    pct = int(i * 100 / total)
+                    self.after(0, lambda p=pct: self.var_resize_progress.set(p))
+
+                self.after(0, lambda: self._resize_log(f"✅ 완료 — {total}장 처리"))
+            finally:
+                self.after(0, lambda: self.btn_resize_run.config(state="normal"))
+
+        threading.Thread(target=_run, daemon=True, name="resize-runner").start()
 
     # ── 조건 탭 ──
     # ── 조건 탭 ──
