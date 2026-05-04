@@ -4997,6 +4997,8 @@ class ImageEditPipeline:
             _update_progress_log(output_dir, Path(image_path).name, True)
             return {
                 "success": True, "files": [info], "path": image_path,
+                "final_bytes": current_bytes,
+                "original_stem": Path(image_path).stem,
                 "image_type": image_type, "background": background,
                 "shooting_angle": shooting_angle,
                 "is_label_cut": is_label_cut,
