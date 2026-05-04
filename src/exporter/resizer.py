@@ -10,8 +10,6 @@ from __future__ import annotations
 import io
 import threading
 from pathlib import Path
-from typing import Callable
-
 from PIL import Image
 from loguru import logger
 
@@ -112,14 +110,25 @@ class MultiSizeResizer:
             img = img.resize((base, base), Image.LANCZOS)
         return img
 
+    def _save_simple_resize(self, img: Image.Image, v_cfg: dict, seq_n: int) -> Path:
+        """단일 사이즈 정사각형 리사이즈 저장 (1500/860 공통)."""
+        target = int(v_cfg.get("size"))
+        sub = v_cfg.get("subfolder")
+        naming = v_cfg.get("naming")
+        dest = self.output_dir / sub / naming.format(n=seq_n)
+        resized = img.resize((target, target), Image.LANCZOS)
+        return self._save_jpeg(resized, dest)
+
     def make_resized_set(
         self,
         img_bytes: bytes,
         seq_n: int,
         is_first: bool,
-        on_log: Callable[[str], None] = None,
     ) -> dict:
         """3종 리사이즈 결과 생성.
+
+        주의: 호출자(BatchCounter)가 seq_n의 유일성과 is_first=True의 단일성을
+        보장해야 한다. 같은 seq_n을 두 번 넘기면 출력 파일이 덮어써진다.
 
         Returns: {"size_1500": Path|None, "size_860": Path|None, "crop": Path|None}
         """
@@ -128,27 +137,14 @@ class MultiSizeResizer:
 
         img = self._ensure_base_size(self._bytes_to_image(img_bytes))
 
-        # size_1500
         v = variants.get("size_1500", {})
         if v.get("enabled", True):
-            target = int(v.get("size", 1500))
-            sub = v.get("subfolder", "1500")
-            naming = v.get("naming", "{n}.jpg")
-            dest = self.output_dir / sub / naming.format(n=seq_n)
-            resized = img.resize((target, target), Image.LANCZOS)
-            result["size_1500"] = self._save_jpeg(resized, dest)
+            result["size_1500"] = self._save_simple_resize(img, v, seq_n)
 
-        # size_860
         v = variants.get("size_860", {})
         if v.get("enabled", True):
-            target = int(v.get("size", 860))
-            sub = v.get("subfolder", "860")
-            naming = v.get("naming", "100_{n}.jpg")
-            dest = self.output_dir / sub / naming.format(n=seq_n)
-            resized = img.resize((target, target), Image.LANCZOS)
-            result["size_860"] = self._save_jpeg(resized, dest)
+            result["size_860"] = self._save_simple_resize(img, v, seq_n)
 
-        # crop_vertical (is_first일 때만 자동 생성)
         v = variants.get("crop_vertical", {})
         if v.get("enabled", True) and (is_first or not v.get("first_only", True)):
             result["crop"] = self._do_crop(img, v)
@@ -168,9 +164,9 @@ class MultiSizeResizer:
 
     def resize_from_file(
         self,
-        source_path: "Path | str",
+        source_path: Path | str,
         seq_n: int,
-        variants: dict = None,
+        variants: dict[str, bool] = None,
         overwrite: bool = True,
     ) -> dict:
         """기존 파일에서 재리사이징 (재실행 탭, 뷰파인더 재리사이즈용).
@@ -189,23 +185,18 @@ class MultiSizeResizer:
 
         img = self._ensure_base_size(self._bytes_to_image(img_bytes))
 
-        if variants.get("size_1500") and v_cfg.get("size_1500", {}).get("enabled", True):
-            v = v_cfg["size_1500"]
-            target = int(v.get("size", 1500))
-            dest = self.output_dir / v.get("subfolder", "1500") / v.get("naming", "{n}.jpg").format(n=seq_n)
+        for key in ("size_1500", "size_860"):
+            if not variants.get(key):
+                continue
+            v = v_cfg.get(key, {})
+            if not v.get("enabled", True):
+                continue
+            naming = v.get("naming", "{n}.jpg")
+            dest = self.output_dir / v.get("subfolder", key) / naming.format(n=seq_n)
             if dest.exists() and not overwrite:
                 logger.info(f"[Resizer] 스킵(덮어쓰기 OFF): {dest}")
-            else:
-                result["size_1500"] = self._save_jpeg(img.resize((target, target), Image.LANCZOS), dest)
-
-        if variants.get("size_860") and v_cfg.get("size_860", {}).get("enabled", True):
-            v = v_cfg["size_860"]
-            target = int(v.get("size", 860))
-            dest = self.output_dir / v.get("subfolder", "860") / v.get("naming", "100_{n}.jpg").format(n=seq_n)
-            if dest.exists() and not overwrite:
-                logger.info(f"[Resizer] 스킵(덮어쓰기 OFF): {dest}")
-            else:
-                result["size_860"] = self._save_jpeg(img.resize((target, target), Image.LANCZOS), dest)
+                continue
+            result[key] = self._save_simple_resize(img, v, seq_n)
 
         if variants.get("crop") and v_cfg.get("crop_vertical", {}).get("enabled", True):
             v = v_cfg["crop_vertical"]
