@@ -1594,6 +1594,20 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
+        # ── 배치 카운터 + 리사이저 (멀티 사이즈 출력용) ───────────
+        from src.exporter.resizer import BatchCounter, MultiSizeResizer
+        try:
+            _settings = load_yaml(SETTINGS_PATH)
+        except Exception:
+            _settings = {}
+        self._batch_counter = BatchCounter()
+        self._batch_resizer = MultiSizeResizer(output_dir, _settings)
+        if _settings.get("resize", {}).get("enabled", True):
+            self._log_unified(
+                "📐 멀티사이즈 출력 활성화 — original/1500/860/crop")
+        else:
+            self._log_unified("📐 멀티사이즈 출력 비활성화")
+
         # UI 초기화
         self._unified_processing = True
         self.btn_unified_file.config(state="disabled")
