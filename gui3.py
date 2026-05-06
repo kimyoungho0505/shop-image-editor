@@ -882,7 +882,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self._routing_rules_data = self._load_routing_rules()
         self._render_routing_rules()
 
-        self._build_image2_section(self.tab_conditions)
+        self._build_image2_section(self._cond_inner)
 
     def _build_image2_section(self, parent):
         """조건 탭 하단 image-2.0 카테고리별 프롬프트 섹션."""
