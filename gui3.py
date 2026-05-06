@@ -438,6 +438,7 @@ import yaml
 CONFIG_DIR = APP_DIR / "config"
 PROMPTS_PATH = CONFIG_DIR / "prompts.yaml"
 SETTINGS_PATH = CONFIG_DIR / "settings.yaml"
+IMAGE2_PROMPTS_PATH = CONFIG_DIR / "image2_prompts.yaml"
 CATEGORIES_PATH = CONFIG_DIR / "categories.yaml"
 SHADOW_HINTS_PATH = CONFIG_DIR / "shadow_hints.yaml"
 ENV_PATH = APP_DIR / ".env"
@@ -880,6 +881,151 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         # 규칙 로드 후 렌더링
         self._routing_rules_data = self._load_routing_rules()
         self._render_routing_rules()
+
+        self._build_image2_section(self.tab_conditions)
+
+    def _build_image2_section(self, parent):
+        """조건 탭 하단 image-2.0 카테고리별 프롬프트 섹션."""
+        # 구분선
+        ttk.Separator(parent, orient="horizontal").pack(
+            fill="x", padx=12, pady=(20, 8))
+
+        # 헤더
+        hdr = tk.Label(
+            parent, text="✨ image-2.0 카테고리별 프롬프트",
+            font=("맑은 고딕", 11, "bold"))
+        hdr.pack(anchor="w", padx=12, pady=(0, 6))
+
+        # 글로벌 옵션
+        glob = tk.Frame(parent); glob.pack(fill="x", padx=12, pady=4)
+        tk.Label(glob, text="기본 품질:").pack(side="left")
+        self.var_image2_default_quality = tk.StringVar(value="medium")
+        ttk.Combobox(
+            glob, textvariable=self.var_image2_default_quality,
+            values=["low", "medium", "high"], state="readonly", width=10,
+        ).pack(side="left", padx=(4, 16))
+
+        tk.Label(glob, text="검증 모델:").pack(side="left")
+        self.var_image2_verify_model = tk.StringVar(value="gpt-4o-mini")
+        ttk.Combobox(
+            glob, textvariable=self.var_image2_verify_model,
+            values=["gpt-4o-mini", "gpt-4o"], state="readonly", width=14,
+        ).pack(side="left", padx=4)
+
+        self.var_image2_block_unsafe = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            glob, text="변형 감지 시 저장 차단",
+            variable=self.var_image2_block_unsafe,
+        ).pack(side="left", padx=(16, 0))
+
+        # 카테고리 선택
+        cat_row = tk.Frame(parent); cat_row.pack(fill="x", padx=12, pady=(8, 4))
+        tk.Label(cat_row, text="카테고리:").pack(side="left")
+        self.var_image2_category = tk.StringVar(value="default")
+        cat_combo = ttk.Combobox(
+            cat_row, textvariable=self.var_image2_category,
+            values=["default", "jewelry", "mannequin", "model",
+                    "full", "detail", "package"],
+            state="readonly", width=14,
+        )
+        cat_combo.pack(side="left", padx=4)
+        cat_combo.bind("<<ComboboxSelected>>",
+                       lambda _e: self._image2_load_category())
+
+        # 보정 프롬프트
+        tk.Label(parent, text="보정 프롬프트:",
+                 font=("맑은 고딕", 9)).pack(anchor="w", padx=12, pady=(8, 2))
+        self.txt_image2_enhance = tk.Text(parent, height=5,
+                                          font=("Consolas", 9), wrap="word")
+        self.txt_image2_enhance.pack(fill="x", padx=12)
+
+        # 검증 프롬프트
+        tk.Label(parent, text="검증 프롬프트:",
+                 font=("맑은 고딕", 9)).pack(anchor="w", padx=12, pady=(8, 2))
+        self.txt_image2_verify = tk.Text(parent, height=5,
+                                         font=("Consolas", 9), wrap="word")
+        self.txt_image2_verify.pack(fill="x", padx=12)
+
+        # 버튼
+        btn = tk.Frame(parent); btn.pack(fill="x", padx=12, pady=10)
+        tk.Button(btn, text="기본값으로 복원",
+                  command=self._image2_reset_category).pack(side="left")
+        tk.Button(btn, text="저장",
+                  command=self._image2_save,
+                  bg="#3498db", fg="white", padx=14
+                  ).pack(side="right")
+
+        # 초기 로드
+        self._image2_load_category()
+
+    def _image2_load_category(self):
+        """선택된 카테고리의 enhance/verify 프롬프트를 텍스트박스에 로드."""
+        try:
+            data = load_yaml(IMAGE2_PROMPTS_PATH)
+        except Exception:
+            data = {}
+        cfg = data.get("image2", {}) if data else {}
+        if hasattr(self, "var_image2_default_quality"):
+            self.var_image2_default_quality.set(
+                cfg.get("default_quality", "medium"))
+            self.var_image2_verify_model.set(
+                cfg.get("verification", {}).get("model", "gpt-4o-mini"))
+            self.var_image2_block_unsafe.set(
+                bool(cfg.get("verification", {}).get("block_on_unsafe", False)))
+
+        cat = self.var_image2_category.get()
+        prompts = cfg.get("prompts", {}).get(cat, {})
+        self.txt_image2_enhance.delete("1.0", "end")
+        self.txt_image2_enhance.insert("1.0", prompts.get("enhance", ""))
+        self.txt_image2_verify.delete("1.0", "end")
+        self.txt_image2_verify.insert("1.0", prompts.get("verify", ""))
+
+    def _image2_reset_category(self):
+        if not messagebox.askyesno("확인",
+                                   "현재 카테고리의 프롬프트를 기본값으로 되돌립니다."):
+            return
+        defaults = {
+            "default": {
+                "enhance": "Enhance this product photo for an e-commerce listing.\n"
+                           "Improve sharpness, color accuracy, and lighting.\n"
+                           "Keep the product, pose, and composition exactly the same.\n"
+                           "Pure white background. No text, no watermarks.",
+                "verify": "Compare the original (first image) and enhanced (second image).\n"
+                          "Check if logos, text, brand marks, or distinctive product features\n"
+                          "have been altered, distorted, or blurred.\n"
+                          "Respond ONLY in JSON: {\"safe\": true|false, \"issues\": [\"...\"]}.",
+            },
+        }
+        cat = self.var_image2_category.get()
+        d = defaults.get(cat, defaults["default"])
+        self.txt_image2_enhance.delete("1.0", "end")
+        self.txt_image2_enhance.insert("1.0", d["enhance"])
+        self.txt_image2_verify.delete("1.0", "end")
+        self.txt_image2_verify.insert("1.0", d["verify"])
+
+    def _image2_save(self):
+        """현재 카테고리 프롬프트 + 글로벌 옵션을 image2_prompts.yaml에 저장."""
+        try:
+            data = load_yaml(IMAGE2_PROMPTS_PATH)
+        except Exception:
+            data = {"image2": {}}
+        if not data:
+            data = {"image2": {}}
+
+        cfg = data.setdefault("image2", {})
+        cfg["default_quality"] = self.var_image2_default_quality.get()
+        cfg.setdefault("verification", {})["model"] = self.var_image2_verify_model.get()
+        cfg["verification"]["block_on_unsafe"] = bool(self.var_image2_block_unsafe.get())
+        prompts = cfg.setdefault("prompts", {})
+        cat = self.var_image2_category.get()
+        prompts.setdefault(cat, {})["enhance"] = \
+            self.txt_image2_enhance.get("1.0", "end").strip()
+        prompts[cat]["verify"] = \
+            self.txt_image2_verify.get("1.0", "end").strip()
+
+        save_yaml(IMAGE2_PROMPTS_PATH, data)
+        messagebox.showinfo("저장 완료",
+                            f"image-2.0 프롬프트 ({cat})가 저장되었습니다.")
 
     def _load_routing_rules(self):
         """config/routing_rules.yaml 로드. 없으면 기본값 반환."""
