@@ -99,3 +99,55 @@ class GPTImage2Client:
             cost_estimate_usd=_COST_PER_IMAGE.get(quality, 0.053),
             elapsed_sec=elapsed,
         )
+
+    def verify(
+        self,
+        original_bytes: bytes,
+        enhanced_bytes: bytes,
+        prompt: str,
+    ) -> VerificationResult:
+        """gpt-4o-mini로 원본 vs 보정 이미지 변형 여부 검증."""
+        o_b64 = base64.b64encode(original_bytes).decode()
+        e_b64 = base64.b64encode(enhanced_bytes).decode()
+
+        t0 = time.time()
+        try:
+            resp = self._client.chat.completions.create(
+                model=self.verification_model,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:image/jpeg;base64,{o_b64}"}},
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:image/jpeg;base64,{e_b64}"}},
+                    ],
+                }],
+                response_format={"type": "json_object"},
+                timeout=self.timeout,
+            )
+        except APIStatusError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status == 402:
+                raise GPTImage2NoCreditError(
+                    "OpenAI 크레딧이 부족합니다 (검증 단계).")
+            raise
+        elapsed = time.time() - t0
+
+        text = resp.choices[0].message.content or ""
+        try:
+            parsed = json.loads(text)
+            safe = bool(parsed.get("safe", False))
+            issues = list(parsed.get("issues", []))
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            safe = False
+            issues = ["검증 응답 파싱 실패 (수동 확인 필요)"]
+            logger.warning(f"[GPTImage2] 검증 JSON 파싱 실패: {text[:100]}")
+
+        logger.info(
+            f"[GPTImage2] 검증 완료 — safe={safe}, "
+            f"issues={len(issues)}, {elapsed:.1f}s")
+        return VerificationResult(
+            safe=safe, issues=issues, raw_response=text, elapsed_sec=elapsed,
+        )

@@ -72,3 +72,48 @@ class TestEnhance:
         with patch.object(c._client.images, "edit", side_effect=err):
             with pytest.raises(GPTImage2NoCreditError):
                 c.enhance(b"\x89PNG", prompt="x")
+
+
+class TestVerify:
+    def _make_resp(self, content: str):
+        msg = MagicMock(content=content)
+        choice = MagicMock(message=msg)
+        return MagicMock(choices=[choice])
+
+    def test_verify_parses_safe_json(self):
+        c = GPTImage2Client(api_key="sk-test")
+        resp = self._make_resp('{"safe": true, "issues": []}')
+        with patch.object(c._client.chat.completions, "create", return_value=resp):
+            r = c.verify(b"orig", b"enh", prompt="check")
+        assert r.safe is True
+        assert r.issues == []
+
+    def test_verify_parses_unsafe_with_issues(self):
+        c = GPTImage2Client(api_key="sk-test")
+        resp = self._make_resp(
+            '{"safe": false, "issues": ["로고 흐려짐", "패턴 단순화"]}')
+        with patch.object(c._client.chat.completions, "create", return_value=resp):
+            r = c.verify(b"orig", b"enh", prompt="check")
+        assert r.safe is False
+        assert "로고 흐려짐" in r.issues
+        assert "패턴 단순화" in r.issues
+
+    def test_verify_invalid_json_falls_back_to_unsafe(self):
+        c = GPTImage2Client(api_key="sk-test")
+        resp = self._make_resp("this is not JSON")
+        with patch.object(c._client.chat.completions, "create", return_value=resp):
+            r = c.verify(b"orig", b"enh", prompt="check")
+        assert r.safe is False
+        assert any("파싱" in s for s in r.issues)
+
+    def test_verify_passes_two_images_in_request(self):
+        c = GPTImage2Client(api_key="sk-test")
+        resp = self._make_resp('{"safe": true, "issues": []}')
+        with patch.object(c._client.chat.completions, "create", return_value=resp) as m:
+            c.verify(b"AAA", b"BBB", prompt="compare")
+        kwargs = m.call_args.kwargs
+        assert kwargs["model"] == "gpt-4o-mini"
+        msgs = kwargs["messages"]
+        content = msgs[0]["content"]
+        types = [c["type"] for c in content]
+        assert types == ["text", "image_url", "image_url"]
