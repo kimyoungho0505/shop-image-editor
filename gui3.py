@@ -2920,6 +2920,13 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 pip.pack(side="left", fill="x", expand=True, padx=1)
                 pips.append(pip)
 
+            # 신규: 동적 스테이지 추가용 참조 저장 (image-2.0 등)
+            self._vf_stage_rows = getattr(self, "_vf_stage_rows", {})
+            self._vf_stage_rows[idx] = {
+                "frame": pip_frame,
+                "dynamic_widgets": [],
+            }
+
             # 상태/검증 행: 항상 고정 높이, 내용만 교체
             status_val_frame = tk.Frame(content, bg=VF_BG, height=16)
             status_val_frame.pack(fill="x", padx=(20, 2), pady=(1, 0))
@@ -5255,16 +5262,271 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                   bg="#9b59b6", fg="white", padx=14, pady=4
                   ).pack(side="right", padx=4)
 
+    def _vf_image2_add_stage(self, vf_idx: int, label: str, state: str = "active"):
+        """image-2.0 동적 스테이지 추가/갱신.
+
+        state: "active" | "done" | "warning" | "error"
+        """
+        if vf_idx >= len(self._viewfinder_pairs):
+            return
+        item = self._viewfinder_pairs[vf_idx]
+        stages_dyn = item.setdefault("image2_stages", [])
+        for s in stages_dyn:
+            if s["label"] == label:
+                s["state"] = state
+                break
+        else:
+            stages_dyn.append({"label": label, "state": state})
+        self._vf_redraw_image2_stages(vf_idx)
+
+    def _vf_redraw_image2_stages(self, vf_idx: int):
+        """카드의 동적 image-2.0 스테이지 표시줄을 다시 렌더한다."""
+        if not hasattr(self, "_vf_stage_rows"):
+            return
+        slot = self._vf_stage_rows.get(vf_idx)
+        if not slot:
+            return
+        # 기존 동적 위젯 제거
+        for w in slot.get("dynamic_widgets", []):
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        slot["dynamic_widgets"] = []
+
+        if vf_idx >= len(self._viewfinder_pairs):
+            return
+        item = self._viewfinder_pairs[vf_idx]
+        for s in item.get("image2_stages", []):
+            color = {"active": "#f1c40f", "done": "#27ae60",
+                     "warning": "#e67e22", "error": "#c0392b"
+                     }.get(s["state"], "#7f8c8d")
+            lbl = tk.Label(
+                slot["frame"],
+                text=f"→ {s['label']}",
+                font=("맑은 고딕", 8),
+                fg=color,
+            )
+            # bg 매칭: 기존 stage row의 부모 색을 따라감
+            try:
+                lbl.config(bg=slot["frame"].cget("bg"))
+            except Exception:
+                pass
+            lbl.pack(side="left", padx=2)
+            slot["dynamic_widgets"].append(lbl)
+
     def _vf_image2_run(self, vf_idx, src_path, enhance_prompt,
                        verify_prompt, quality, run_verify, category):
-        """Task 8에서 구현 — 백그라운드 워커 + 결과 누적."""
-        # placeholder — Task 8에서 교체됨
-        messagebox.showinfo("준비 중", "Task 8에서 구현됩니다.")
+        """백그라운드 스레드에서 image-2.0 보정+검증 실행."""
+        import threading
+
+        # 스테이지 표시 시작
+        stage_label = f"image-2.0 ({quality})"
+        self.after(0, lambda: self._vf_image2_add_stage(
+            vf_idx, stage_label, "active"))
+        self._log_unified(
+            f"  ✨ image-2.0 보정 시작 — {src_path.name} ({quality})")
+
+        def _worker():
+            from src.openai_image import (
+                GPTImage2Client, GPTImage2NoCreditError)
+            try:
+                with open(src_path, "rb") as f:
+                    img_bytes = f.read()
+
+                # 검증 모델은 설정에서 로드
+                try:
+                    cfg = (load_yaml(IMAGE2_PROMPTS_PATH) or {}).get("image2", {})
+                except Exception:
+                    cfg = {}
+                verify_model = cfg.get("verification", {}).get(
+                    "model", "gpt-4o-mini")
+
+                client = GPTImage2Client(
+                    verification_model=verify_model)
+
+                enh, ver = client.enhance_and_verify(
+                    image_bytes=img_bytes,
+                    enhance_prompt=enhance_prompt,
+                    verify_prompt=verify_prompt,
+                    quality=quality,
+                    run_verification=run_verify,
+                )
+
+                def _on_done():
+                    item = self._viewfinder_pairs[vf_idx]
+                    item.setdefault("image2_results", []).append({
+                        "bytes": enh.enhanced_bytes,
+                        "quality": enh.quality,
+                        "prompt": enh.prompt_used,
+                        "category": category,
+                        "verification": (
+                            {"safe": ver.safe,
+                             "issues": ver.issues,
+                             "elapsed_sec": ver.elapsed_sec}
+                            if ver else None),
+                        "elapsed_sec": enh.elapsed_sec,
+                        "cost_estimate": enh.cost_estimate_usd,
+                    })
+                    state = "done"
+                    if ver and not ver.safe:
+                        state = "warning"
+                    self._vf_image2_add_stage(vf_idx, stage_label, state)
+                    self._vf_render_image2_options(vf_idx)
+                    issues_msg = ""
+                    if ver and not ver.safe and ver.issues:
+                        issues_msg = f" ⚠️ {ver.issues[0]}"
+                    self._log_unified(
+                        f"  ✅ image-2.0 보정 완료 — {src_path.name} "
+                        f"({quality}, {enh.elapsed_sec:.1f}s){issues_msg}",
+                        "success")
+                self.after(0, _on_done)
+
+            except GPTImage2NoCreditError as e:
+                self.after(0, lambda: self._vf_image2_add_stage(
+                    vf_idx, stage_label, "error"))
+                self.after(0, lambda err=str(e): messagebox.showerror(
+                    "OpenAI 크레딧 부족",
+                    f"{err}\n\n충전 후 다시 시도해 주세요.",
+                    parent=self._vf_dlg))
+                self._log_unified(
+                    f"  ❌ image-2.0 — 크레딧 부족", "error")
+            except Exception as e:
+                self.after(0, lambda: self._vf_image2_add_stage(
+                    vf_idx, stage_label, "error"))
+                self.after(0, lambda err=str(e): messagebox.showerror(
+                    "image-2.0 실패", f"보정 실패:\n{err}",
+                    parent=self._vf_dlg))
+                self._log_unified(
+                    f"  ❌ image-2.0 실패 — {e}", "error")
+
+        threading.Thread(target=_worker, daemon=True,
+                         name="image2-worker").start()
 
     def _vf_apply_image2_final(self, vf_idx: int):
-        """Task 9에서 본체 구현"""
-        # placeholder — Task 9에서 교체됨
-        messagebox.showinfo("준비 중", "Task 9에서 구현됩니다.")
+        """선택된 image-2.0 결과를 최종 저장 — OUTPUT/original 덮어쓰기 +
+        멀티사이즈 자동 재생성."""
+        from PIL import Image
+        import io as _io
+
+        if vf_idx >= len(self._viewfinder_pairs):
+            return
+        item = self._viewfinder_pairs[vf_idx]
+        sel = item.get("image2_selected_idx", -1)
+        if sel < 0:
+            messagebox.showinfo(
+                "안내",
+                "선택된 image-2.0 결과가 없습니다.\n"
+                "라디오에서 적용할 결과를 먼저 선택하세요.",
+                parent=self._vf_dlg)
+            return
+        if sel >= len(item.get("image2_results", [])):
+            messagebox.showerror("오류", "잘못된 선택 인덱스입니다.",
+                                 parent=self._vf_dlg)
+            return
+
+        result = item["image2_results"][sel]
+        ver = result.get("verification") or {}
+        # 변형 감지 시 한 번 더 확인
+        if ver and not ver.get("safe"):
+            issues = "\n  - ".join(ver.get("issues", []))
+            if not messagebox.askyesno(
+                "변형 감지 결과 저장 확인",
+                f"이 결과는 변형이 감지되었습니다:\n\n  - {issues}\n\n"
+                f"정말 최종 저장하시겠습니까?",
+                parent=self._vf_dlg,
+                icon="warning"):
+                return
+
+        # OUTPUT/original 경로 확보
+        orig_path = self._vf_image2_get_source(vf_idx)
+        if not orig_path:
+            messagebox.showerror(
+                "오류", "원본 보존 파일을 찾을 수 없습니다.",
+                parent=self._vf_dlg)
+            return
+
+        # 백업
+        stem = orig_path.stem
+        backup = orig_path.with_name(f"{stem}_v0.jpg")
+        suffix = 1
+        while backup.exists():
+            backup = orig_path.with_name(f"{stem}_v0_{suffix}.jpg")
+            suffix += 1
+        try:
+            orig_path.rename(backup)
+        except Exception as e:
+            messagebox.showerror(
+                "백업 실패",
+                f"기존 원본 백업에 실패했습니다:\n{e}",
+                parent=self._vf_dlg)
+            return
+
+        # image-2.0 결과를 base_size로 업스케일하여 저장
+        try:
+            i2_img = Image.open(_io.BytesIO(result["bytes"]))
+            if i2_img.mode != "RGB":
+                if i2_img.mode == "RGBA":
+                    bg = Image.new("RGB", i2_img.size, (255, 255, 255))
+                    bg.paste(i2_img, mask=i2_img.split()[3])
+                    i2_img = bg
+                else:
+                    i2_img = i2_img.convert("RGB")
+
+            from src.exporter.resizer import MultiSizeResizer
+            try:
+                full_settings = load_yaml(SETTINGS_PATH) or {}
+            except Exception:
+                full_settings = {}
+            base = int((full_settings.get("resize", {}) or {}).get("base_size", 2250))
+            if i2_img.size != (base, base):
+                i2_img = i2_img.resize((base, base), Image.LANCZOS)
+            i2_img.save(orig_path, format="JPEG", quality=95, optimize=True)
+        except Exception as e:
+            try:
+                backup.rename(orig_path)
+            except Exception:
+                pass
+            messagebox.showerror(
+                "저장 실패",
+                f"image-2.0 결과 저장 중 오류:\n{e}",
+                parent=self._vf_dlg)
+            return
+
+        # 멀티사이즈 재생성
+        try:
+            output_root = orig_path.parent.parent
+            resizer = MultiSizeResizer(output_root, full_settings)
+            seq_n = item.get("seq_n", vf_idx + 1)
+            is_first = (vf_idx == 0)
+            resizer.resize_from_file(
+                orig_path,
+                seq_n=seq_n,
+                variants={"size_1500": True, "size_860": True,
+                          "crop": is_first},
+                overwrite=True,
+            )
+        except Exception as e:
+            messagebox.showwarning(
+                "멀티사이즈 재생성 경고",
+                f"OUTPUT/original은 갱신되었지만 멀티사이즈 재생성 중 오류:\n{e}\n"
+                f"리사이징 탭에서 수동 재실행이 가능합니다.",
+                parent=self._vf_dlg)
+
+        # 카드 상태 업데이트
+        item["final_saved"] = True
+        self._vf_render_image2_options(vf_idx)
+        self._log_unified(
+            f"  💾 image-2.0 최종 저장 완료 — {orig_path.name} "
+            f"(백업: {backup.name})",
+            "success")
+        messagebox.showinfo(
+            "최종 저장 완료",
+            f"image-2.0 결과가 최종 저장되었습니다.\n\n"
+            f"  • 원본 → {backup.name}로 백업\n"
+            f"  • 새 원본: {orig_path.name}\n"
+            f"  • 1500/860/crop 자동 재생성 완료",
+            parent=self._vf_dlg)
 
 
 
