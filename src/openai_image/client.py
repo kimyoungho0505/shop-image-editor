@@ -151,3 +151,31 @@ class GPTImage2Client:
         return VerificationResult(
             safe=safe, issues=issues, raw_response=text, elapsed_sec=elapsed,
         )
+
+    def enhance_and_verify(
+        self,
+        image_bytes: bytes,
+        enhance_prompt: str,
+        verify_prompt: str,
+        quality: str = "medium",
+        size: str = "1024x1024",
+        run_verification: bool = True,
+    ) -> tuple:
+        """편의 메서드: 보정 후 즉시 검증."""
+        result = self.enhance(image_bytes, enhance_prompt, quality, size)
+        verification = None
+        if run_verification:
+            try:
+                verification = self.verify(
+                    image_bytes, result.enhanced_bytes, verify_prompt)
+            except GPTImage2NoCreditError:
+                raise
+            except Exception as e:
+                logger.warning(f"[GPTImage2] 검증 실패 (보정 결과는 보존): {e}")
+                verification = VerificationResult(
+                    safe=False,
+                    issues=[f"검증 실행 실패: {e}"],
+                    raw_response="",
+                    elapsed_sec=0.0,
+                )
+        return result, verification

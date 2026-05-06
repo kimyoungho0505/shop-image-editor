@@ -117,3 +117,40 @@ class TestVerify:
         content = msgs[0]["content"]
         types = [c["type"] for c in content]
         assert types == ["text", "image_url", "image_url"]
+
+
+class TestEnhanceAndVerify:
+    def test_runs_both_in_order(self):
+        c = GPTImage2Client(api_key="sk-test")
+        b64 = _fake_b64_image()
+        edit_resp = MagicMock()
+        edit_resp.data = [MagicMock(b64_json=b64)]
+        verify_msg = MagicMock(content='{"safe": true, "issues": []}')
+        verify_resp = MagicMock(choices=[MagicMock(message=verify_msg)])
+        with patch.object(c._client.images, "edit", return_value=edit_resp), \
+             patch.object(c._client.chat.completions, "create",
+                          return_value=verify_resp):
+            enh, ver = c.enhance_and_verify(
+                image_bytes=b"orig",
+                enhance_prompt="boost",
+                verify_prompt="compare",
+                quality="medium",
+            )
+        assert isinstance(enh, GPTImage2Result)
+        assert isinstance(ver, VerificationResult)
+        assert ver.safe is True
+
+    def test_returns_none_verification_when_disabled(self):
+        c = GPTImage2Client(api_key="sk-test")
+        b64 = _fake_b64_image()
+        edit_resp = MagicMock()
+        edit_resp.data = [MagicMock(b64_json=b64)]
+        with patch.object(c._client.images, "edit", return_value=edit_resp):
+            enh, ver = c.enhance_and_verify(
+                image_bytes=b"orig",
+                enhance_prompt="boost",
+                verify_prompt="compare",
+                quality="medium",
+                run_verification=False,
+            )
+        assert ver is None
