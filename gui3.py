@@ -1953,6 +1953,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     on_log=self._log_unified,
                     idx=idx,
                     routing_rules=self._routing_rules_data,
+                    on_stage_image=self._vf_make_stage_cb(fname, output_dir),
                 )
             except (ClaidNoCreditError, PhotoroomNoCreditError) as e:
                 # 크레딧 부족 → 모든 처리 즉시 중단 + 팝업 알림
@@ -2043,10 +2044,10 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     self._batch_resizer.save_original(final_bytes, stem)
                 except Exception as _re:
                     self._log_unified(f"  ⚠️ 원본 보존 실패: {_re}", "warning")
-                # 2) 멀티 사이즈 리사이즈 — 카운터는 성공 시에만 소비
+                # 2) 멀티 사이즈 리사이즈 — 뷰파인더 순서(idx)와 일치하는 순번 사용
                 try:
-                    n = self._batch_counter.next()
-                    is_first = self._batch_counter.is_first()
+                    n = idx                  # 입력 폴더 순서 (1-indexed)
+                    is_first = (idx == 1)    # 첫 번째 이미지만 crop 생성
                     rs = self._batch_resizer.make_resized_set(
                         final_bytes, seq_n=n, is_first=is_first)
                     result["resized"] = {
@@ -2054,6 +2055,9 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                         "size_860":  str(rs["size_860"])  if rs["size_860"]  else None,
                         "crop":      str(rs["crop"])      if rs["crop"]      else None,
                     }
+                    # 뷰파인더 카드에 순번 저장 (image-2.0 최종 저장 시 동일 순번 사용)
+                    if 0 <= vf_idx < len(self._viewfinder_pairs):
+                        self._viewfinder_pairs[vf_idx]["seq_n"] = n
                     extra = ", crop/main.jpg" if rs["crop"] is not None else ""
                     self._log_unified(
                         f"  📐 멀티 출력: 1500/{n}.jpg, 860/100_{n}.jpg{extra}",
@@ -3150,15 +3154,15 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                  font=(FONT_FAMILY, 11, "bold"))
         lbl_right_title.pack(side="left", expand=True)
 
-        # 단계별 보기 탭 바
-        _STAGE_TABS = ["비교", "원본", "누끼", "보정", "그림자", "최종"]
+        # 단계별 보기 탭 바 (4개: 원본 / 누끼+그림자 / 보정 / 최종)
+        _STAGE_TABS = ["원본", "누끼+그림자", "보정", "최종"]
         stage_tab_frame = tk.Frame(right, bg=VF_BG)
         stage_tab_frame.pack(fill="x", padx=12, pady=(4, 4))
-        stage_mode = [None]  # None = 비교 모드
+        stage_mode = ["원본"]  # 기본: 원본 단계
         stage_tab_btns = {}
 
         def _select_stage_tab(tab_name):
-            stage_mode[0] = None if tab_name == "비교" else tab_name
+            stage_mode[0] = tab_name
             for name, btn in stage_tab_btns.items():
                 if name == tab_name:
                     btn.configure(bg=VF_ACCENT, fg=VF_BG)
@@ -3174,8 +3178,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                             command=lambda t=tab: _select_stage_tab(t))
             btn.pack(side="left", padx=2)
             stage_tab_btns[tab] = btn
-        # 기본: 비교 탭 활성
-        stage_tab_btns["비교"].configure(bg=VF_ACCENT, fg=VF_BG)
+        # 기본: 원본 탭 활성
+        stage_tab_btns["원본"].configure(bg=VF_ACCENT, fg=VF_BG)
 
         # 캔버스 영역
         canvas_frame = tk.Frame(right, bg=VF_BG)
@@ -3572,8 +3576,22 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                                    font=(FONT_FAMILY, 12))
 
         def _load_stage_image(fname, stage_name):
-            """단계별 저장 이미지를 로드해 반환 (PIL Image 또는 None)"""
+            """단계별 저장 이미지를 로드해 반환 (PIL Image 또는 None).
+
+            "누끼+그림자"는 그림자 단계 이미지를 우선 사용하고,
+            없으면 누끼 단계 이미지로 폴백한다.
+            """
             si = self._vf_file_stages.get(fname, {}).get("stage_images", {})
+            # 합성 단계명 처리
+            if stage_name == "누끼+그림자":
+                for key in ("그림자", "누끼"):
+                    p = si.get(key)
+                    if p and Path(p).exists():
+                        try:
+                            return Image.open(p)
+                        except Exception:
+                            continue
+                return None
             path = si.get(stage_name)
             if path and Path(path).exists():
                 try:
@@ -3606,60 +3624,39 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
             inp = pair["input_path"]
             fname = Path(inp).name
-            sm = stage_mode[0]  # None=비교, or stage name
+            sm = stage_mode[0]  # 항상 stage 이름 ("원본", "누끼+그림자", "보정", "최종")
+            stage_order = ["원본", "누끼+그림자", "보정", "최종"]
+            si_idx = stage_order.index(sm) if sm in stage_order else 0
+            # 왼쪽: 이전 단계 (원본 탭이면 입력 파일, 그 외면 이전 단계)
+            prev_stage = stage_order[si_idx - 1] if si_idx > 0 else None
+            lbl_left_title.config(text=f"\U0001f4f7  {prev_stage or '입력'}")
+            lbl_right_title.config(text=f"\u2728  {sm}")
 
-            if sm is not None:
-                # ── 단계별 보기 모드 ──
-                stage_order = ["원본", "누끼", "보정", "그림자", "최종"]
-                si_idx = stage_order.index(sm) if sm in stage_order else 0
-                # 왼쪽: 이전 단계 (없으면 원본)
-                prev_stage = stage_order[si_idx - 1] if si_idx > 0 else None
-                lbl_left_title.config(text=f"\U0001f4f7  {prev_stage or '원본'}")
-                lbl_right_title.config(text=f"\u2728  {sm}")
-
-                if prev_stage:
-                    prev_img = _load_stage_image(fname, prev_stage)
-                else:
-                    prev_img = None
-                if prev_img:
-                    _fit_image(cv_orig, prev_img)
-                    w, h = prev_img.size
-                    lbl_orig_info.config(text=f"{prev_stage}  ·  {w}×{h}")
-                else:
-                    try:
-                        img_orig = Image.open(inp)
-                        _fit_image(cv_orig, img_orig)
-                        w, h = img_orig.size
-                        lbl_orig_info.config(text=f"원본  ·  {w}×{h}")
-                    except Exception:
-                        _show_placeholder(cv_orig, "로드 실패", "\U0001f5bc\ufe0f")
-                        lbl_orig_info.config(text="")
-
-                cur_img = _load_stage_image(fname, sm)
-                if cur_img:
-                    _fit_image(cv_proc, cur_img)
-                    pw, ph = cur_img.size
-                    lbl_proc_info.config(text=f"{sm}  ·  {pw}×{ph}")
-                else:
-                    _show_placeholder(cv_proc, f"{sm} 이미지 없음", "\U0001f4ad")
-                    lbl_proc_info.config(text="")
-                lbl_out_sel.config(text="")
+            # 좌측 (이전 단계 또는 원본 입력)
+            if prev_stage:
+                prev_img = _load_stage_image(fname, prev_stage)
             else:
-                # ── 비교 모드 (기존) ──
-                lbl_left_title.config(text="\U0001f4f7  원본")
-                lbl_right_title.config(text="\u2728  처리 결과")
-
+                prev_img = None
+            if prev_img:
+                _fit_image(cv_orig, prev_img)
+                w, h = prev_img.size
+                lbl_orig_info.config(text=f"{prev_stage}  ·  {w}×{h}")
+            else:
+                # 원본 입력 표시
                 try:
                     img_orig = Image.open(inp)
+                    _fit_image(cv_orig, img_orig)
                     w, h = img_orig.size
                     sz = Path(inp).stat().st_size // 1024
                     lbl_orig_info.config(
                         text=f"{Path(inp).name}  \u00b7  {w}\u00d7{h}  \u00b7  {sz}KB")
-                    _fit_image(cv_orig, img_orig)
                 except Exception:
                     _show_placeholder(cv_orig, "로드 실패", "\U0001f5bc\ufe0f")
-                    lbl_orig_info.config(text=Path(inp).name)
+                    lbl_orig_info.config(text="")
 
+            # 우측 (현재 단계)
+            if sm == "원본":
+                # 원본 탭은 우측에 출력 결과 표시 (비교 모드와 유사)
                 out_files = pair.get("output_files", [])
                 if out_files and out_sub < len(out_files):
                     out_path = out_files[out_sub]["path"]
@@ -3685,10 +3682,18 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     lbl_out_sel.config(text="")
                 else:
                     _show_placeholder(cv_proc, "출력 없음", "\u2716")
-                    lbl_proc_info.config(
-                        text="처리 실패" if not pair.get("success") else "",
-                        fg=VF_RED if not pair.get("success") else VF_TEXT_DIM)
+                    lbl_proc_info.config(text="")
                     lbl_out_sel.config(text="")
+            else:
+                cur_img = _load_stage_image(fname, sm)
+                if cur_img:
+                    _fit_image(cv_proc, cur_img)
+                    pw, ph = cur_img.size
+                    lbl_proc_info.config(text=f"{sm}  ·  {pw}×{ph}")
+                else:
+                    _show_placeholder(cv_proc, f"{sm} 이미지 없음", "\U0001f4ad")
+                    lbl_proc_info.config(text="")
+                lbl_out_sel.config(text="")
 
             _update_validation_display(pair)
             _update_vision_display(pair)
@@ -3716,7 +3721,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                         _show(current_idx[0], out_idx[0] + 1)
             elif event.keysym == "Escape":
                 dlg.destroy()
-            elif event.char in ("1", "2", "3", "4", "5", "6"):
+            elif event.char in ("1", "2", "3", "4"):
                 tab_idx = int(event.char) - 1
                 if tab_idx < len(_STAGE_TABS):
                     _select_stage_tab(_STAGE_TABS[tab_idx])

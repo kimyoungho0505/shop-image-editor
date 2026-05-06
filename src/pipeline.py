@@ -4822,6 +4822,7 @@ class ImageEditPipeline:
         on_log: Callable = None,
         idx: int = 1,
         routing_rules: list = None,
+        on_stage_image: Callable = None,
     ) -> dict:
         """Vision 분류 → 자동 분기 처리.
 
@@ -4830,8 +4831,10 @@ class ImageEditPipeline:
         detail + 비흰배경   → Claid만
         """
         _log = on_log or (lambda msg, tag="info": logger.info(msg))
+        _stage_img = on_stage_image or (lambda stage, data: None)
         try:
             original_bytes = Path(image_path).read_bytes()  # 원본 무압축 보존
+            _stage_img("원본", original_bytes)
             image_bytes = _shrink_bytes(original_bytes, max_px=3000)
             _log(f"  원본 로드: {len(original_bytes)//1024}KB")
 
@@ -4931,6 +4934,7 @@ class ImageEditPipeline:
                     fallback=image_bytes, on_log=_log)
                 if current_bytes is not image_bytes:
                     _log(f"  Claid 완료 ({len(current_bytes)//1024}KB)", "success")
+                _stage_img("보정", current_bytes)
 
             else:
                 # 누끼 포함 (Photoroom 호출)
@@ -4965,6 +4969,10 @@ class ImageEditPipeline:
                 if not result_bytes:
                     return {"success": False, "error": "Photoroom 응답 없음", "path": image_path}
                 _log(f"  Photoroom 완료 ({len(result_bytes)//1024}KB)", "success")
+                # 스테이지 이미지: 누끼(그림자 포함 시 그림자도 같이)
+                _stage_img("누끼", result_bytes)
+                if do_shadow:
+                    _stage_img("그림자", result_bytes)
 
                 if do_enhance:
                     claid_input = result_bytes
@@ -4982,6 +4990,7 @@ class ImageEditPipeline:
                         fallback=result_bytes, on_log=_log)
                     if current_bytes is not result_bytes:
                         _log(f"  Claid 완료 ({len(current_bytes)//1024}KB)", "success")
+                    _stage_img("보정", current_bytes)
                 else:
                     current_bytes = result_bytes
 
@@ -4991,6 +5000,7 @@ class ImageEditPipeline:
             namer = FileNamer(FileNamer.extract_base_from_path(image_path))
             file_name = namer.next_name(".jpg")
             file_path = output_path / file_name
+            _stage_img("최종", current_bytes)
             info = self._optimizer.save_from_bytes(current_bytes, str(file_path), max_size_kb)
             _log(f"  출력: {file_name} ({info['size_kb']}KB)", "success")
             # 진행 로그 기록 (성공)
