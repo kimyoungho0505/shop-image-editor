@@ -1,7 +1,47 @@
 # LUXBOY Shop Image Editor - 개발 히스토리
 
-> 마지막 업데이트: 2026-04-22 (7차)
+> 마지막 업데이트: 2026-05-06 (9차)
 > 다른 PC에서 이어서 개발할 때 이 문서를 참고하세요.
+
+---
+
+## 2026-05-06 (9차) — gpt-image-2 사후 보정 + 변형 검증
+
+### 추가된 기능
+- **뷰파인더에서 카드별 image-2.0 보정** (선택적): 메인 처리 결과를 보고 카드별로 OpenAI gpt-image-2를 호출하여 사후 보정
+- **카테고리별 보정/검증 프롬프트 (조건 탭)**: default/jewelry/mannequin/model/full/detail/package — Vision 분석 결과에 따라 자동 매핑
+- **자동 변형 검증** (`gpt-4o-mini`): 원본 + 보정본을 함께 보내 로고/문자/디테일 왜곡 감지 → JSON 응답 파싱 → 카드 배지에 ✅/⚠️ 표시
+- **결과 토글 누적**: 한 카드에서 여러 번 시도 (품질/프롬프트 조합) → 라디오로 비교 후 선택
+- **품질 옵션** (다이얼로그에서 매번 선택): low ($0.006) / medium ($0.05) / high ($0.21)
+- **최종 저장**: 선택 결과로 OUTPUT/original 덮어쓰기 → 1500/860/crop 자동 재생성, 기존 원본은 `_v0.jpg`로 백업
+- **뷰파인더 단계 표시 동적 추가**: image-2.0 (medium/high) 단계가 시도마다 추가됨
+
+### 기술
+- 신규 모듈: `src/openai_image/client.py` — `GPTImage2Client` (보정 + 검증 통합)
+- 신규 설정: `config/image2_prompts.yaml` (카테고리별 enhance/verify 프롬프트)
+- 9개 단위 테스트 (`tests/test_openai_image.py`, mock 기반)
+- 가격: medium ~$0.05, high ~$0.21 per 1024×1024 + 검증 ~$0.001
+
+---
+
+## 2026-05-04 (8차) — 멀티 사이즈 리사이징 + EXE 자동 업데이트
+
+### 추가된 기능
+- **편집 후 자동 멀티 사이즈 출력 (4종)**
+  - `output/original/` — 편집 원본 보존 (2250×2250, `{원본명}_1.jpg`)
+  - `output/1500/` — 1500×1500 (`{n}.jpg`, 배치 통합 순번)
+  - `output/860/` — 860×860 (`100_{n}.jpg`)
+  - `output/crop/` — 1500×2250 센터크롭 (`main.jpg`, 첫 이미지만)
+- **리사이징 전용 탭**: 편집 없이 폴더의 이미지들을 사이즈만 재변환
+- **뷰파인더 카드 리사이즈 버튼**: 개별 이미지 사이즈 재생성
+- **EXE 빌드 자동화**: GitHub 태그 푸시 시 Actions로 자동 EXE 생성 + Release 등록
+- **자동 업데이트**: 시작 시 GitHub Releases 체크 → 새 버전 발견 시 다운로드 + 자동 교체
+
+### 기술
+- 신규 모듈: `src/exporter/resizer.py` — `BatchCounter` (thread-safe) + `MultiSizeResizer`
+- `config/settings.yaml`에 `resize:` 섹션 추가
+- 14개 단위 테스트 (`tests/test_resizer.py`)
+- `src/updater.py` + `gui3.spec` (PyInstaller) + `.github/workflows/build-release.yml`
 
 ---
 
