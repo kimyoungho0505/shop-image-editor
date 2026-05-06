@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field
 
 from loguru import logger
-from openai import OpenAI, APIStatusError, APITimeoutError, APIConnectionError
+from openai import OpenAI, APIStatusError
 
 
 @dataclass
@@ -24,7 +24,7 @@ class GPTImage2Result:
 @dataclass
 class VerificationResult:
     safe: bool
-    issues: list = field(default_factory=list)
+    issues: list[str] = field(default_factory=list)
     raw_response: str = ""
     elapsed_sec: float = 0.0
 
@@ -33,11 +33,13 @@ class GPTImage2NoCreditError(RuntimeError):
     """OpenAI 크레딧 부족 (HTTP 402)."""
 
 
+# OpenAI gpt-image-2 quality tiers: low | medium | high
+# (Earlier marketing materials used "hd" — alias preserved for compat)
 _COST_PER_IMAGE = {
     "low": 0.006,
     "medium": 0.053,
-    "hd": 0.211,
     "high": 0.211,
+    "hd": 0.211,   # alias for "high"
 }
 
 
@@ -46,7 +48,7 @@ class GPTImage2Client:
 
     def __init__(
         self,
-        api_key: str = None,
+        api_key: str | None = None,
         verification_model: str = "gpt-4o-mini",
         timeout: int = 120,
     ):
@@ -119,9 +121,9 @@ class GPTImage2Client:
                     "content": [
                         {"type": "text", "text": prompt},
                         {"type": "image_url",
-                         "image_url": {"url": f"data:image/jpeg;base64,{o_b64}"}},
+                         "image_url": {"url": f"data:image/png;base64,{o_b64}"}},
                         {"type": "image_url",
-                         "image_url": {"url": f"data:image/jpeg;base64,{e_b64}"}},
+                         "image_url": {"url": f"data:image/png;base64,{e_b64}"}},
                     ],
                 }],
                 response_format={"type": "json_object"},
