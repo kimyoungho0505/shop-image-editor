@@ -2666,6 +2666,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             "output_files": [],
             "success": False,
             "status": "processing",
+            # ── image-2.0 사후 보정 데이터 ──
+            "image2_results": [],         # list of dict per attempt
+            "image2_selected_idx": -1,    # -1=편집본, 0+=image2_results 인덱스
+            "image2_stages": [],          # 동적 스테이지 표시용
+            "final_saved": False,
         })
         return len(self._viewfinder_pairs) - 1  # index
 
@@ -2937,6 +2942,17 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                                fg=VF_TEXT_FAINT, font=(FONT_FAMILY, 8))
                 val_icons[key] = lbl
 
+            # ── image-2.0 결과 라디오 영역 ──
+            self._vf_image2_rows = getattr(self, "_vf_image2_rows", {})
+            i2_frame = tk.Frame(content, bg=VF_BG)
+            i2_frame.pack(fill="x", padx=(20, 2), pady=(4, 0))
+            self._vf_image2_rows[idx] = {
+                "frame": i2_frame,
+                "selection": tk.IntVar(value=-1),
+                "rows": [],
+            }
+            self._vf_render_image2_options(idx)
+
             # 카드별 액션 버튼 행 (리사이즈 등)
             card_btn_row = tk.Frame(content, bg=VF_BG)
             card_btn_row.pack(fill="x", padx=(20, 2), pady=(2, 0))
@@ -2945,6 +2961,18 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 command=lambda i=idx: self._vf_open_resize_dialog(i),
                 font=("맑은 고딕", 8),
                 bg="#34495e", fg="white", padx=6, bd=0, cursor="hand2",
+            ).pack(side="left", padx=2)
+            tk.Button(
+                card_btn_row, text="✨ image-2.0",
+                command=lambda i=idx: self._vf_open_image2_dialog(i),
+                font=("맑은 고딕", 8),
+                bg="#9b59b6", fg="white", padx=6, bd=0, cursor="hand2",
+            ).pack(side="left", padx=2)
+            tk.Button(
+                card_btn_row, text="\U0001f4be 최종 저장",
+                command=lambda i=idx: self._vf_apply_image2_final(i),
+                font=("맑은 고딕", 8),
+                bg="#27ae60", fg="white", padx=6, bd=0, cursor="hand2",
             ).pack(side="left", padx=2)
 
             file_rows[fname] = {
@@ -5029,6 +5057,214 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                   bg="#3498db", fg="white", padx=14, pady=4).pack(side="left", padx=4)
         tk.Button(btn_row, text="취소", command=dlg.destroy,
                   padx=14, pady=4).pack(side="left", padx=4)
+
+    # ─────────────────────────────────────────────
+    # image-2.0 사후 보정 헬퍼 (Tasks 6 + 7)
+    # ─────────────────────────────────────────────
+    def _vf_render_image2_options(self, vf_idx: int):
+        """카드의 image-2.0 결과 토글 영역을 다시 그린다."""
+        if not hasattr(self, "_vf_image2_rows"):
+            return
+        if vf_idx not in self._vf_image2_rows:
+            return
+        slot = self._vf_image2_rows[vf_idx]
+        frm = slot["frame"]
+        for w in frm.winfo_children():
+            w.destroy()
+        slot["rows"] = []
+
+        if vf_idx >= len(self._viewfinder_pairs):
+            return
+        item = self._viewfinder_pairs[vf_idx]
+        sel_var = slot["selection"]
+        sel_var.set(item.get("image2_selected_idx", -1))
+
+        bg = frm.cget("bg")
+
+        # 편집본
+        tk.Radiobutton(
+            frm, text="◉ 편집본 (기본)",
+            variable=sel_var, value=-1,
+            command=lambda: self._vf_image2_select(vf_idx, -1),
+            font=("맑은 고딕", 9),
+            bg=bg, anchor="w",
+        ).pack(anchor="w")
+
+        # image-2.0 결과들
+        for i, r in enumerate(item.get("image2_results", [])):
+            v = r.get("verification") or {}
+            if v:
+                badge = "✅ 검증 통과" if v.get("safe") else "⚠️ 변형 감지"
+            else:
+                badge = "ℹ️ 검증 없음"
+            label = f"image-2.0 {r.get('quality','?')} ({i+1}차) {badge}"
+            tk.Radiobutton(
+                frm, text=label,
+                variable=sel_var, value=i,
+                command=lambda x=i: self._vf_image2_select(vf_idx, x),
+                font=("맑은 고딕", 9),
+                bg=bg, anchor="w",
+            ).pack(anchor="w")
+            if v and not v.get("safe"):
+                issues = "; ".join(v.get("issues", []))[:80]
+                if issues:
+                    tk.Label(frm, text=f"   → {issues}",
+                             font=("맑은 고딕", 8), fg="#c0392b",
+                             bg=bg, anchor="w"
+                             ).pack(anchor="w")
+
+    def _vf_image2_select(self, vf_idx: int, choice_idx: int):
+        """라디오 변경 처리 — 메모리에만 반영. 최종 저장은 별도 버튼."""
+        if 0 <= vf_idx < len(self._viewfinder_pairs):
+            self._viewfinder_pairs[vf_idx]["image2_selected_idx"] = choice_idx
+
+    def _vf_image2_detect_category(self, vf_idx: int) -> str:
+        """Vision 분석 결과에서 image-2.0 프롬프트 카테고리 매핑."""
+        if vf_idx >= len(self._viewfinder_pairs):
+            return "default"
+        item = self._viewfinder_pairs[vf_idx]
+        vinfo = item.get("vision_info") or {}
+        category = (vinfo.get("category") or item.get("detected_category") or "").lower()
+        image_type = (vinfo.get("image_type") or item.get("image_type") or "").lower()
+        has_mannequin = bool(vinfo.get("has_mannequin", item.get("has_mannequin", False)))
+
+        if category == "jewelry":
+            return "jewelry"
+        if image_type == "worn":
+            return "mannequin" if has_mannequin else "model"
+        if image_type in ("full", "detail", "package"):
+            return image_type
+        return "default"
+
+    def _vf_image2_get_source(self, vf_idx: int):
+        """image-2.0 보정 원본 경로 — 항상 OUTPUT/original/{stem}_1.jpg에서 로드."""
+        if vf_idx >= len(self._viewfinder_pairs):
+            return None
+        item = self._viewfinder_pairs[vf_idx]
+        in_path = Path(item.get("input_path", ""))
+        stem = in_path.stem
+        for of in item.get("output_files", []):
+            p = Path(of.get("path", ""))
+            if p.parent.exists():
+                cand = p.parent.parent / "original" / f"{stem}_1.jpg"
+                if cand.exists():
+                    return cand
+                cand2 = p.parent / "original" / f"{stem}_1.jpg"
+                if cand2.exists():
+                    return cand2
+        return None
+
+    def _vf_open_image2_dialog(self, vf_idx: int):
+        """image-2.0 보정 다이얼로그 — 프롬프트/품질 입력."""
+        if vf_idx >= len(self._viewfinder_pairs):
+            return
+
+        # 원본(편집본) 경로 확보
+        orig_path = self._vf_image2_get_source(vf_idx)
+        if not orig_path or not orig_path.exists():
+            messagebox.showerror(
+                "오류",
+                "보정할 원본 이미지를 찾을 수 없습니다.\n"
+                "먼저 메인 처리를 완료해 주세요.",
+                parent=self._vf_dlg)
+            return
+
+        # 카테고리 자동 감지 + 프롬프트 prefill
+        try:
+            cfg = (load_yaml(IMAGE2_PROMPTS_PATH) or {}).get("image2", {})
+        except Exception:
+            cfg = {}
+        prompts = cfg.get("prompts", {})
+        cat_default = self._vf_image2_detect_category(vf_idx)
+        default_quality = cfg.get("default_quality", "medium")
+
+        dlg = tk.Toplevel(self._vf_dlg)
+        dlg.title(f"✨ image-2.0 보정 — {orig_path.name}")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        f = tk.Frame(dlg, padx=18, pady=14); f.pack(fill="both", expand=True)
+
+        # 카테고리
+        row = tk.Frame(f); row.pack(fill="x", pady=4)
+        tk.Label(row, text="카테고리:", width=10, anchor="w").pack(side="left")
+        var_cat = tk.StringVar(value=cat_default)
+        cat_combo = ttk.Combobox(
+            row, textvariable=var_cat,
+            values=list(prompts.keys()) or ["default"],
+            state="readonly", width=18,
+        )
+        cat_combo.pack(side="left")
+        tk.Label(row, text=f"(자동 감지: {cat_default})",
+                 fg="#888", font=("맑은 고딕", 8)).pack(side="left", padx=8)
+
+        # 보정 프롬프트
+        tk.Label(f, text="보정 프롬프트 (이번 1회만 수정 가능):",
+                 anchor="w").pack(fill="x", pady=(10, 2))
+        txt_prompt = tk.Text(f, height=6, width=70,
+                             font=("Consolas", 9), wrap="word")
+        txt_prompt.pack(fill="x")
+
+        def _load_prompt():
+            cat = var_cat.get()
+            txt_prompt.delete("1.0", "end")
+            txt_prompt.insert("1.0",
+                              prompts.get(cat, {}).get("enhance", ""))
+        cat_combo.bind("<<ComboboxSelected>>", lambda _e: _load_prompt())
+        _load_prompt()
+
+        # 품질
+        row = tk.Frame(f); row.pack(fill="x", pady=10)
+        tk.Label(row, text="품질:").pack(side="left")
+        var_quality = tk.StringVar(value=default_quality)
+        for q, label in [("low", "low (~$0.006)"),
+                         ("medium", "medium (~$0.05)"),
+                         ("high", "high (~$0.21)")]:
+            tk.Radiobutton(row, text=label, value=q,
+                           variable=var_quality).pack(side="left", padx=4)
+
+        # 검증 토글
+        var_verify = tk.BooleanVar(value=True)
+        tk.Checkbutton(
+            f, text="자동 검증 (gpt-4o-mini, ~$0.001)",
+            variable=var_verify,
+        ).pack(anchor="w", pady=(4, 8))
+
+        # 버튼
+        btn_row = tk.Frame(f); btn_row.pack(fill="x", pady=(10, 0))
+        tk.Button(btn_row, text="취소", command=dlg.destroy,
+                  padx=14, pady=4).pack(side="right", padx=4)
+
+        def _start():
+            prompt = txt_prompt.get("1.0", "end").strip()
+            if not prompt:
+                messagebox.showwarning("경고", "프롬프트가 비어있습니다.",
+                                       parent=dlg)
+                return
+            cat = var_cat.get()
+            verify_prompt = prompts.get(cat, {}).get("verify", "")
+            quality = var_quality.get()
+            run_verify = var_verify.get()
+            dlg.destroy()
+            self._vf_image2_run(
+                vf_idx, orig_path, prompt, verify_prompt,
+                quality, run_verify, cat,
+            )
+
+        tk.Button(btn_row, text="✨ 보정 시작", command=_start,
+                  bg="#9b59b6", fg="white", padx=14, pady=4
+                  ).pack(side="right", padx=4)
+
+    def _vf_image2_run(self, vf_idx, src_path, enhance_prompt,
+                       verify_prompt, quality, run_verify, category):
+        """Task 8에서 구현 — 백그라운드 워커 + 결과 누적."""
+        # placeholder — Task 8에서 교체됨
+        messagebox.showinfo("준비 중", "Task 8에서 구현됩니다.")
+
+    def _vf_apply_image2_final(self, vf_idx: int):
+        """Task 9에서 본체 구현"""
+        # placeholder — Task 9에서 교체됨
+        messagebox.showinfo("준비 중", "Task 9에서 구현됩니다.")
 
 
 
