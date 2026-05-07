@@ -252,11 +252,13 @@ resize:
       enabled: true
       width: 1500                  # 목표 가로
       height: 2250                 # 목표 세로
-      white_threshold: 245         # 콘텐츠 감지 임계값 (RGB 모든 채널 ≥ 245면 흰배경)
+      white_threshold: 235         # 콘텐츠 감지 임계값 (RGB min < 235면 콘텐츠)
+      content_min_ratio: 0.005     # 행/열별 콘텐츠 비율 ≥ 0.5%면 콘텐츠 행/열 (JPEG 노이즈 무시)
+      margin_ratio: 0.05           # 콘텐츠 주변 5% 여유 패딩
       subfolder: "crop"
       filename: "main.jpg"
       first_only: true             # 배치의 첫 이미지에서만 자동 생성
-      # 스마트 크롭: 제품 바운딩 박스 감지 후 콘텐츠 손실 최소화
+      # 스마트 크롭: 제품 bbox 감지 후 흰배경 패딩으로 비율 정규화 → 1500×2250 리사이즈
 
   preserve_original:
     enabled: true

@@ -152,9 +152,16 @@ class MultiSizeResizer:
         return result
 
     @staticmethod
-    def _detect_content_bbox(img: Image.Image,
-                             white_threshold: int = 245) -> tuple[int, int, int, int]:
+    def _detect_content_bbox(
+        img: Image.Image,
+        white_threshold: int = 235,
+        min_ratio: float = 0.005,
+    ) -> tuple[int, int, int, int]:
         """비어있지 않은(흰배경 아닌) 영역의 바운딩 박스 (x_min, y_min, x_max, y_max) 반환.
+
+        JPEG 압축 노이즈에 강건하도록:
+        - 행/열별 콘텐츠 픽셀 비율이 min_ratio 이상일 때만 '콘텐츠 행/열'로 인정
+        - 임계값을 235로 설정하여 약간 어두운 흰배경도 배경으로 간주
 
         모든 픽셀이 흰배경이면 이미지 전체 반환.
         """
@@ -166,15 +173,24 @@ class MultiSizeResizer:
 
         if img.mode == "RGBA":
             arr = np.array(img.split()[3])
-            mask = arr > 16
+            mask = arr > 32  # 알파 32 이상이어야 콘텐츠 (반투명 안티앨리어싱 무시)
         else:
             arr = np.array(img.convert("RGB"))
+            # min(R,G,B) < threshold면 콘텐츠 — JPEG 노이즈에 강건하도록 235로
             mask = arr.min(axis=2) < white_threshold
 
-        cols = mask.any(axis=0)
-        rows = mask.any(axis=1)
+        # 행/열별 콘텐츠 픽셀 수
+        col_counts = mask.sum(axis=0)  # shape (W,)
+        row_counts = mask.sum(axis=1)  # shape (H,)
+        # 일정 비율 이상이어야 진짜 콘텐츠 행/열로 인정 (JPEG 노이즈 무시)
+        col_thr = max(2, int(h * min_ratio))
+        row_thr = max(2, int(w * min_ratio))
+        cols = col_counts >= col_thr
+        rows = row_counts >= row_thr
+
         if not cols.any() or not rows.any():
             return 0, 0, w - 1, h - 1
+
         x_min = int(np.argmax(cols))
         x_max = int(w - 1 - np.argmax(cols[::-1]))
         y_min = int(np.argmax(rows))
@@ -193,13 +209,16 @@ class MultiSizeResizer:
         """
         target_w = int(v.get("width", 1500))
         target_h = int(v.get("height", 2250))
-        white_thr = int(v.get("white_threshold", 245))
+        white_thr = int(v.get("white_threshold", 235))
         # 콘텐츠 주변 여유 비율 (콘텐츠 폭/높이 대비 %)
         margin_ratio = float(v.get("margin_ratio", 0.05))
+        # 행/열별 콘텐츠 인정 비율 (JPEG 노이즈 무시용)
+        min_ratio = float(v.get("content_min_ratio", 0.005))
         w, h = img.size
 
         # 1) 콘텐츠 바운딩 박스
-        x_min, y_min, x_max, y_max = self._detect_content_bbox(img, white_thr)
+        x_min, y_min, x_max, y_max = self._detect_content_bbox(
+            img, white_thr, min_ratio)
         bw = x_max - x_min + 1
         bh = y_max - y_min + 1
 
