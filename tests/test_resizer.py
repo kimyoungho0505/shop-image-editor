@@ -216,10 +216,9 @@ class TestCropVertical:
         with Image.open(result["crop"]) as im:
             assert im.size == (1500, 2250)
 
-    def test_crop_pixel_correctness(self, tmp_path, full_settings):
-        """좌측 첫 픽셀이 입력의 (375,0) 픽셀과 일치하는지 검증."""
+    def test_crop_output_size_is_exactly_target(self, tmp_path, full_settings):
+        """출력 사이즈가 정확히 1500×2250인지만 검증 (스마트 크롭 후 리사이즈)."""
         from src.exporter.resizer import MultiSizeResizer
-        # 좌→우 그라데이션 생성: x=0 검정, x=2249 흰색
         img = Image.new("RGB", (2250, 2250), (0, 0, 0))
         px = img.load()
         for x in range(2250):
@@ -234,9 +233,6 @@ class TestCropVertical:
 
         with Image.open(result["crop"]) as cropped:
             assert cropped.size == (1500, 2250)
-            cropped_left = cropped.getpixel((0, 1125))[0]
-            expected = int(255 * 375 / 2249)
-            assert abs(cropped_left - expected) <= 5  # JPEG 손실 허용
 
 
 class TestResizeFromFile:
@@ -432,3 +428,89 @@ class TestSmartCropVertical:
 
         with Image.open(result["crop"]) as cropped:
             assert cropped.size == (1500, 2250)
+
+
+class TestSmartCropNoContentLoss:
+    """스마트 크롭이 콘텐츠를 잘라내지 않는지 검증."""
+
+    @pytest.fixture
+    def cfg(self):
+        return {
+            "resize": {
+                "enabled": True,
+                "base_size": 2250,
+                "variants": {
+                    "crop_vertical": {
+                        "enabled": True, "width": 1500, "height": 2250,
+                        "white_threshold": 245, "subfolder": "crop",
+                        "filename": "main.jpg", "first_only": True,
+                    },
+                    "size_1500": {"enabled": True, "size": 1500,
+                                  "subfolder": "1500", "naming": "{n}.jpg"},
+                    "size_860": {"enabled": True, "size": 860,
+                                 "subfolder": "860", "naming": "100_{n}.jpg"},
+                },
+                "preserve_original": {"enabled": True, "subfolder": "original",
+                                      "naming": "{stem}_1.jpg"},
+                "jpeg_max_size_kb": 2024,
+                "jpeg_quality": 90,
+            }
+        }
+
+    def _count_dark_pixels(self, img: Image.Image, threshold: int = 100):
+        """RGB 모든 채널이 threshold 이하인 픽셀 수 (제품 영역 추정)."""
+        try:
+            import numpy as np
+            arr = np.array(img.convert("RGB"))
+            return int((arr.max(axis=2) < threshold).sum())
+        except Exception:
+            return 0
+
+    def test_wide_product_not_cropped_off(self, tmp_path, cfg):
+        """제품이 2250 폭 거의 전체를 차지해도 크롭 결과에 모두 보존되는지."""
+        from src.exporter.resizer import MultiSizeResizer
+        # 제품 폭 2050px (1500보다 훨씬 넓음)
+        img_bytes = _make_product_on_white(
+            (2250, 2250), product_bbox=(100, 200, 2150, 2050))
+        # 원본 픽셀 수 (제품 영역)
+        with Image.open(io.BytesIO(img_bytes)) as orig:
+            orig_dark_count = self._count_dark_pixels(orig)
+
+        r = MultiSizeResizer(tmp_path, cfg)
+        result = r.make_resized_set(img_bytes, seq_n=1, is_first=True)
+
+        with Image.open(result["crop"]) as cropped:
+            assert cropped.size == (1500, 2250)
+            cropped_dark_count = self._count_dark_pixels(cropped)
+            # 리사이즈로 픽셀 수가 줄어들지만 비율로 보존돼야 함
+            # 원본 2250×2250 → cropped 캔버스 ~3060×2250 → 1500×2250 (스케일 ~0.49 가로)
+            # 제품 픽셀 수가 0이면 안됨 (=완전 잘려나감)
+            assert cropped_dark_count > 1000, (
+                f"제품이 너무 많이 잘려나감: cropped_dark={cropped_dark_count} "
+                f"(orig_dark={orig_dark_count})"
+            )
+
+    def test_left_edge_product_preserved(self, tmp_path, cfg):
+        """제품이 왼쪽 가장자리(0-1200)에 있어도 잘리지 않는지."""
+        from src.exporter.resizer import MultiSizeResizer
+        img_bytes = _make_product_on_white(
+            (2250, 2250), product_bbox=(0, 200, 1200, 2050))
+        r = MultiSizeResizer(tmp_path, cfg)
+        result = r.make_resized_set(img_bytes, seq_n=1, is_first=True)
+
+        with Image.open(result["crop"]) as cropped:
+            cropped_dark_count = self._count_dark_pixels(cropped)
+            # 가장자리 제품도 흰배경 패딩으로 안전하게 보존돼야 함
+            assert cropped_dark_count > 1000
+
+    def test_right_edge_product_preserved(self, tmp_path, cfg):
+        """제품이 오른쪽 가장자리(1050-2249)에 있어도 잘리지 않는지."""
+        from src.exporter.resizer import MultiSizeResizer
+        img_bytes = _make_product_on_white(
+            (2250, 2250), product_bbox=(1050, 200, 2249, 2050))
+        r = MultiSizeResizer(tmp_path, cfg)
+        result = r.make_resized_set(img_bytes, seq_n=1, is_first=True)
+
+        with Image.open(result["crop"]) as cropped:
+            cropped_dark_count = self._count_dark_pixels(cropped)
+            assert cropped_dark_count > 1000

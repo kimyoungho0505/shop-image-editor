@@ -152,96 +152,115 @@ class MultiSizeResizer:
         return result
 
     @staticmethod
-    def _detect_content_x_range(img: Image.Image,
-                                white_threshold: int = 245) -> tuple[int, int]:
-        """비어있지 않은(흰배경 아닌) 영역의 가로 범위 (x_min, x_max) 반환.
+    def _detect_content_bbox(img: Image.Image,
+                             white_threshold: int = 245) -> tuple[int, int, int, int]:
+        """비어있지 않은(흰배경 아닌) 영역의 바운딩 박스 (x_min, y_min, x_max, y_max) 반환.
 
-        모든 픽셀이 흰배경에 가까우면 (0, w-1) 반환 (이미지 전체).
-        white_threshold: 모든 RGB 채널이 이 값 이상이면 '흰 여백'으로 간주.
+        모든 픽셀이 흰배경이면 이미지 전체 반환.
         """
+        w, h = img.size
         try:
             import numpy as np
         except ImportError:
-            return 0, img.size[0] - 1
+            return 0, 0, w - 1, h - 1
 
         if img.mode == "RGBA":
-            # 알파 채널 사용 — 투명/반투명한 곳은 배경
-            arr = np.array(img.split()[3])  # alpha
-            mask = arr > 16  # 알파 16 이상이면 콘텐츠
+            arr = np.array(img.split()[3])
+            mask = arr > 16
         else:
             arr = np.array(img.convert("RGB"))
-            # 어느 한 채널이라도 임계값보다 낮으면 콘텐츠로 간주
             mask = arr.min(axis=2) < white_threshold
 
-        w = img.size[0]
         cols = mask.any(axis=0)
-        if not cols.any():
-            return 0, w - 1
+        rows = mask.any(axis=1)
+        if not cols.any() or not rows.any():
+            return 0, 0, w - 1, h - 1
         x_min = int(np.argmax(cols))
         x_max = int(w - 1 - np.argmax(cols[::-1]))
-        return x_min, x_max
+        y_min = int(np.argmax(rows))
+        y_max = int(h - 1 - np.argmax(rows[::-1]))
+        return x_min, y_min, x_max, y_max
 
     def _do_crop(self, img: Image.Image, v: dict) -> Path:
-        """제품 중심을 보존하는 스마트 크롭 (목표 1500×2250).
+        """제품 전체를 보존하는 1500×2250 출력.
 
-        제품 바운딩 박스를 감지해 가능한 한 콘텐츠를 잘라내지 않고
-        좌/우 여백을 깎아 1500×2250 비율을 만든다.
-        제품이 너무 넓으면 중앙 기준으로 자른다.
+        알고리즘:
+          1. 제품 바운딩 박스 감지
+          2. 약간의 여유 패딩 추가
+          3. 1500:2250 (2:3) 비율로 박스 확장 (콘텐츠 절대 손실 없음)
+          4. 박스가 이미지 경계 밖이면 흰배경 캔버스로 합성
+          5. 최종 1500×2250으로 LANCZOS 리사이즈
         """
         target_w = int(v.get("width", 1500))
         target_h = int(v.get("height", 2250))
         white_thr = int(v.get("white_threshold", 245))
+        # 콘텐츠 주변 여유 비율 (콘텐츠 폭/높이 대비 %)
+        margin_ratio = float(v.get("margin_ratio", 0.05))
         w, h = img.size
 
-        # 세로 길이 정규화 (target_h와 다르면 비율 유지로 맞춤)
-        if h != target_h:
-            scale = target_h / h
-            new_w = int(round(w * scale))
-            img = img.resize((new_w, target_h), Image.LANCZOS)
-            w, h = img.size
+        # 1) 콘텐츠 바운딩 박스
+        x_min, y_min, x_max, y_max = self._detect_content_bbox(img, white_thr)
+        bw = x_max - x_min + 1
+        bh = y_max - y_min + 1
 
-        # 가로가 이미 target_w 이하면 그대로 (좌우 흰배경 패딩으로 채움)
-        if w <= target_w:
-            canvas = Image.new("RGB", (target_w, target_h), (255, 255, 255))
-            offset = (target_w - w) // 2
-            if img.mode == "RGBA":
-                canvas.paste(img, (offset, 0), mask=img.split()[3])
-            else:
-                canvas.paste(img.convert("RGB"), (offset, 0))
-            cropped = canvas
-            mode = "padded"
-            x_left = -offset
+        # 2) 여유 패딩 추가
+        pad = int(max(bw, bh) * margin_ratio)
+        x_min_p = x_min - pad
+        y_min_p = y_min - pad
+        x_max_p = x_max + pad
+        y_max_p = y_max + pad
+        bw_p = x_max_p - x_min_p + 1
+        bh_p = y_max_p - y_min_p + 1
+
+        # 3) 목표 비율 (target_w : target_h, 보통 2:3)에 맞춰 박스 확장
+        # 현재 box ratio = bw_p / bh_p, target ratio = target_w / target_h
+        # ratio 비교로 가로/세로 중 어느 쪽을 늘릴지 결정
+        if bw_p * target_h > bh_p * target_w:
+            # 박스가 너무 가로로 김 → 세로를 늘려 비율 맞춤
+            new_h = int(round(bw_p * target_h / target_w))
+            extra = new_h - bh_p
+            y_min_p -= extra // 2
+            y_max_p += extra - extra // 2
         else:
-            # 콘텐츠 가로 범위 검출
-            x_min, x_max = self._detect_content_x_range(img, white_thr)
-            content_w = x_max - x_min + 1
-            content_center = (x_min + x_max) // 2
+            # 박스가 너무 세로로 김 → 가로를 늘려 비율 맞춤
+            new_w = int(round(bh_p * target_w / target_h))
+            extra = new_w - bw_p
+            x_min_p -= extra // 2
+            x_max_p += extra - extra // 2
 
-            # 1) 콘텐츠가 target_w 이하 → 콘텐츠를 가능한 중앙에 배치하면서 양쪽 여백 컷
-            if content_w <= target_w:
-                # 콘텐츠 중심 기준으로 1500 윈도우 배치
-                left = content_center - target_w // 2
-                # 클램핑 — 이미지 경계 안으로
-                left = max(0, min(left, w - target_w))
-                cropped = img.crop((left, 0, left + target_w, h))
-                mode = f"content-centered (콘텐츠 폭 {content_w}px)"
-                x_left = left
+        win_w = x_max_p - x_min_p + 1
+        win_h = y_max_p - y_min_p + 1
+
+        # 4) 흰배경 캔버스에 콘텐츠 부분 합성 (박스가 이미지 밖이어도 안전)
+        canvas = Image.new("RGB", (win_w, win_h), (255, 255, 255))
+        # 이미지에서 실제로 가져올 영역
+        src_l = max(0, x_min_p)
+        src_t = max(0, y_min_p)
+        src_r = min(w, x_max_p + 1)
+        src_b = min(h, y_max_p + 1)
+        # 캔버스 내 붙일 위치
+        dst_l = src_l - x_min_p
+        dst_t = src_t - y_min_p
+
+        if src_r > src_l and src_b > src_t:
+            patch = img.crop((src_l, src_t, src_r, src_b))
+            if img.mode == "RGBA":
+                canvas.paste(patch.convert("RGBA"), (dst_l, dst_t),
+                             mask=patch.split()[3] if patch.mode == "RGBA" else None)
             else:
-                # 2) 콘텐츠가 target_w보다 넓음 → 콘텐츠 중심을 기준으로 크롭 (불가피하게 일부 손실)
-                left = content_center - target_w // 2
-                left = max(0, min(left, w - target_w))
-                cropped = img.crop((left, 0, left + target_w, h))
-                mode = (f"content-too-wide ({content_w}px > {target_w}px, "
-                        f"좌우 일부 손실)")
-                x_left = left
+                canvas.paste(patch.convert("RGB"), (dst_l, dst_t))
+
+        # 5) 최종 1500×2250로 리사이즈
+        final = canvas.resize((target_w, target_h), Image.LANCZOS)
 
         logger.info(
-            f"[Resizer] 스마트 크롭: {mode} → {cropped.size} (x_left={x_left})")
+            f"[Resizer] 스마트 크롭: 콘텐츠 bbox=({bw}×{bh}) "
+            f"→ 패딩 박스 ({win_w}×{win_h}) → 리사이즈 ({target_w}×{target_h})")
 
         sub = v.get("subfolder", "crop")
         fname = v.get("filename", "main.jpg")
         dest = self.output_dir / sub / fname
-        return self._save_jpeg(cropped, dest)
+        return self._save_jpeg(final, dest)
 
     def resize_from_file(
         self,
