@@ -1666,7 +1666,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             show="headings", yscrollcommand=tv_scroll.set,
             selectmode="browse", height=8)
         tv_scroll.config(command=self.tv_folders.yview)
-        self.tv_folders.heading("sel",   text="",      command=lambda: _toggle_all_check())
+        self.tv_folders.heading("sel",   text="☐",     command=lambda: _toggle_all_check())
         self.tv_folders.heading("path",  text="폴더 경로")
         self.tv_folders.heading("count", text="이미지")
         self.tv_folders.heading("done",  text="완료")
@@ -1689,11 +1689,49 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         def _get_checked_iids():
             return [i for i in self.tv_folders.get_children() if _is_checked(i)]
 
+        # 헤더 클릭 3단계 사이클:
+        #   0(초기) → 1: 미완료(완료수 < 이미지수)만 체크
+        #   1       → 2: 전체 체크
+        #   2       → 0: 전체 해제
+        self._tv_check_cycle = 0
+
+        def _parse_count(text):
+            """'7장' → 7,  '-' → 0"""
+            try:
+                return int(str(text).replace("장", "").strip() or 0)
+            except Exception:
+                return 0
+
+        def _is_folder_complete(iid):
+            """완료수 >= 이미지수 (모두 처리됨)."""
+            total = _parse_count(self.tv_folders.set(iid, "count"))
+            done = _parse_count(self.tv_folders.set(iid, "done"))
+            return total > 0 and done >= total
+
         def _toggle_all_check():
             children = self.tv_folders.get_children()
-            any_unchecked = any(not _is_checked(i) for i in children)
-            for i in children:
-                _set_check(i, any_unchecked)
+            if not children:
+                return
+            state = (self._tv_check_cycle + 1) % 3
+            self._tv_check_cycle = state
+            if state == 1:
+                # 미완료만 체크
+                for i in children:
+                    _set_check(i, not _is_folder_complete(i))
+                self.tv_folders.heading("sel", text="◐")  # 부분 체크 표시
+            elif state == 2:
+                # 전체 체크
+                for i in children:
+                    _set_check(i, True)
+                self.tv_folders.heading("sel", text="☑")
+            else:
+                # 전체 해제
+                for i in children:
+                    _set_check(i, False)
+                self.tv_folders.heading("sel", text="☐")
+
+        # 외부 메서드에서 사용할 수 있도록 헬퍼 노출
+        self._tv_is_folder_complete = _is_folder_complete
 
         # 클릭 이벤트 — ☐열: 체크 토글 / 📂열: 폴더 열기
         def _on_tv_click(event):
@@ -1858,8 +1896,45 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self.after(0, _do)
 
     def _run_unified_photoroom(self, mode="batch"):
-        input_folders = [self.tv_folders.set(i, "path")
-                         for i in self.tv_folders.get_children()]
+        # 체크된 폴더만 진행 대상
+        all_children = list(self.tv_folders.get_children())
+        checked_iids = [i for i in all_children
+                        if self.tv_folders.set(i, "sel") == "☑"]
+
+        if mode == "batch" and not checked_iids and all_children:
+            messagebox.showwarning(
+                "경고",
+                "처리할 폴더를 체크하세요.\n"
+                "(목록 헤더 ☐ 클릭으로 미완료/전체/해제를 순환 선택)")
+            return
+
+        # 완료 폴더 포함 여부 확인 — batch 모드에서만
+        if mode == "batch" and checked_iids:
+            completed_iids = [
+                i for i in checked_iids
+                if self._tv_is_folder_complete(i)
+            ]
+            if completed_iids:
+                completed_paths = [
+                    self.tv_folders.set(i, "path") for i in completed_iids
+                ]
+                preview = "\n".join(f"  • {Path(p).name}"
+                                    for p in completed_paths[:5])
+                if len(completed_paths) > 5:
+                    preview += f"\n  ... 외 {len(completed_paths) - 5}건"
+                if not messagebox.askyesno(
+                    "완료 폴더 포함됨",
+                    f"이미 완료된 폴더 {len(completed_paths)}개가 포함되었습니다:\n\n"
+                    f"{preview}\n\n"
+                    f"해당 폴더도 다시 진행하시겠습니까?",
+                    icon="warning"):
+                    return
+
+        # batch 모드: 체크된 폴더만 / file 모드: 모든 폴더(init_dir 추정용)
+        if mode == "batch":
+            input_folders = [self.tv_folders.set(i, "path") for i in checked_iids]
+        else:
+            input_folders = [self.tv_folders.set(i, "path") for i in all_children]
 
         if mode == "file":
             filetypes = [("이미지 파일", "*.jpg *.jpeg *.png *.bmp *.tiff *.webp"),
