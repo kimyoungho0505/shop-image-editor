@@ -1946,8 +1946,6 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             if not filepaths:
                 return
             file_list = list(filepaths)
-            # 파일 선택 모드: 첫 파일의 부모 폴더/OUTPUT
-            output_dir = str(Path(file_list[0]).parent / "OUTPUT")
         else:
             if not input_folders:
                 messagebox.showwarning("경고", "입력 폴더를 선택하세요.")
@@ -1962,22 +1960,44 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             if not file_list:
                 messagebox.showwarning("경고", "선택한 폴더에 이미지 파일이 없습니다.")
                 return
-            # 폴더 모드: 첫 번째 폴더/OUTPUT
-            output_dir = str(Path(input_folders[0]) / "OUTPUT")
 
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-
-        # ── 배치 카운터 + 리사이저 (멀티 사이즈 출력용) ───────────
+        # ── 폴더별 OUTPUT 분리 + 폴더별 리사이저 ───────────────
+        # 각 이미지의 부모 폴더 OUTPUT/에 저장 + seq_n도 폴더별로 1부터 재시작
         from src.exporter.resizer import BatchCounter, MultiSizeResizer
+        from collections import OrderedDict
         try:
             _settings = load_yaml(SETTINGS_PATH)
         except Exception:
             _settings = {}
-        self._batch_counter = BatchCounter()
-        self._batch_resizer = MultiSizeResizer(output_dir, _settings)
+
+        # 1) 폴더별로 이미지 그룹화 (입력 순서 보존)
+        folder_images = OrderedDict()
+        for _img in file_list:
+            _folder = str(Path(_img).parent)
+            folder_images.setdefault(_folder, []).append(_img)
+
+        # 2) 폴더별 OUTPUT 디렉토리 생성 + 리사이저 인스턴스 + 이미지별 계획
+        folder_resizers = {}      # folder_path → MultiSizeResizer
+        img_plan = {}             # img_path → (output_dir, resizer, seq_n, is_first)
+        for _folder, _imgs in folder_images.items():
+            _out = str(Path(_folder) / "OUTPUT")
+            Path(_out).mkdir(parents=True, exist_ok=True)
+            folder_resizers[_folder] = MultiSizeResizer(_out, _settings)
+            for _local_n, _img in enumerate(_imgs, 1):
+                img_plan[_img] = (_out, folder_resizers[_folder],
+                                  _local_n, _local_n == 1)
+
+        # 첫 폴더 OUTPUT을 기본 디렉토리로 사용 (로그/뷰파인더 헤더용)
+        output_dir = str(Path(next(iter(folder_images))) / "OUTPUT")
+        self._batch_counter = BatchCounter()  # 호환용 — 내부에서는 미사용
+        self._batch_resizer = folder_resizers[next(iter(folder_images))]
+        self._img_plan = img_plan
+        self._folder_resizers = folder_resizers
+
         if _settings.get("resize", {}).get("enabled", True):
             self._log_unified(
-                "📐 멀티사이즈 출력 활성화 — original/1500/860/crop")
+                f"📐 멀티사이즈 출력 활성화 — 폴더 {len(folder_resizers)}개에 각각 "
+                f"original/1500/860/crop 생성")
         else:
             self._log_unified("📐 멀티사이즈 출력 비활성화")
 
@@ -2011,6 +2031,17 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             fname = Path(img_path).name
             if not self._unified_processing:
                 return
+            # 이미지별 계획: 각자의 OUTPUT/, 폴더별 리사이저, 폴더 내 순번
+            _plan = self._img_plan.get(img_path)
+            if _plan is None:
+                # fallback (file 모드에서 미리 계획 못 잡은 경우)
+                _img_out = str(Path(img_path).parent / "OUTPUT")
+                Path(_img_out).mkdir(parents=True, exist_ok=True)
+                _img_resizer = MultiSizeResizer(_img_out, _settings)
+                _img_seq_n = 1
+                _img_is_first = True
+            else:
+                _img_out, _img_resizer, _img_seq_n, _img_is_first = _plan
             self._log_unified(f"-- [{idx}/{total}] {fname} 시작 --")
             with lock:
                 vf_idx = self._vf_register_file(img_path)
@@ -2021,14 +2052,14 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 pl._vision_provider = vision_provider
                 result = pl.process_single_unified_photoroom(
                     image_path=img_path,
-                    output_dir=output_dir,
+                    output_dir=_img_out,
                     shadow_mode=shadow_mode,
                     bg_color=bg_color,
                     shadow_opacity=shadow_opacity,
                     on_log=self._log_unified,
                     idx=idx,
                     routing_rules=self._routing_rules_data,
-                    on_stage_image=self._vf_make_stage_cb(fname, output_dir),
+                    on_stage_image=self._vf_make_stage_cb(fname, _img_out),
                 )
             except (ClaidNoCreditError, PhotoroomNoCreditError) as e:
                 # 크레딧 부족 → 모든 처리 즉시 중단 + 팝업 알림
@@ -2110,20 +2141,20 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 self._log_unified(traceback.format_exc(), "error")
                 result = {"success": False, "error": str(e), "path": img_path}
 
-            # ── 멀티 사이즈 리사이즈 ─────────────────────────
+            # ── 멀티 사이즈 리사이즈 (폴더별 리사이저 + 폴더 내 순번) ──
             if result.get("success") and result.get("final_bytes"):
                 stem = result.get("original_stem") or Path(img_path).stem
                 final_bytes = result["final_bytes"]
                 # 1) 원본 보존 (실패해도 배치 계속)
                 try:
-                    self._batch_resizer.save_original(final_bytes, stem)
+                    _img_resizer.save_original(final_bytes, stem)
                 except Exception as _re:
                     self._log_unified(f"  ⚠️ 원본 보존 실패: {_re}", "warning")
-                # 2) 멀티 사이즈 리사이즈 — 뷰파인더 순서(idx)와 일치하는 순번 사용
+                # 2) 멀티 사이즈 리사이즈 — 폴더 내 1부터 시작하는 순번 사용
                 try:
-                    n = idx                  # 입력 폴더 순서 (1-indexed)
-                    is_first = (idx == 1)    # 첫 번째 이미지만 crop 생성
-                    rs = self._batch_resizer.make_resized_set(
+                    n = _img_seq_n            # 폴더 내 순번 (1-indexed, 폴더별 재시작)
+                    is_first = _img_is_first  # 폴더의 첫 이미지만 crop 생성
+                    rs = _img_resizer.make_resized_set(
                         final_bytes, seq_n=n, is_first=is_first)
                     result["resized"] = {
                         "size_1500": str(rs["size_1500"]) if rs["size_1500"] else None,
@@ -2135,7 +2166,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                         self._viewfinder_pairs[vf_idx]["seq_n"] = n
                     extra = ", crop/main.jpg" if rs["crop"] is not None else ""
                     self._log_unified(
-                        f"  📐 멀티 출력: 1500/{n}.jpg, 860/100_{n}.jpg{extra}",
+                        f"  📐 멀티 출력: {Path(_img_out).parent.name}/1500/{n}.jpg, "
+                        f"860/100_{n}.jpg{extra}",
                         "success")
                 except Exception as _re:
                     self._log_unified(f"  ⚠️ 리사이즈 실패: {_re}", "warning")

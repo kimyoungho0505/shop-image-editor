@@ -1,7 +1,29 @@
 # LUXBOY Shop Image Editor - 개발 히스토리
 
-> 마지막 업데이트: 2026-05-06 (11차)
+> 마지막 업데이트: 2026-05-06 (12차)
 > 다른 PC에서 이어서 개발할 때 이 문서를 참고하세요.
+
+---
+
+## 2026-05-06 (12차) — 폴더별 OUTPUT 분리 (다중 폴더 처리 버그 수정)
+
+### 수정된 버그
+- **다중 폴더 처리 시 모든 출력이 첫 번째 폴더의 OUTPUT/에만 저장되던 문제** 수정
+  - 원인: `output_dir = Path(input_folders[0]) / "OUTPUT"`로 단일 디렉토리 사용
+  - 결과: 폴더 A(3장) + 폴더 B(4장) 처리 시 7장 모두 폴더 A/OUTPUT/에 저장됨
+
+### 변경 내용
+- 입력 이미지를 부모 폴더별로 그룹화 (`OrderedDict` — 입력 순서 보존)
+- **각 폴더마다 별도 `OUTPUT/` 디렉토리** 생성 + 별도 `MultiSizeResizer` 인스턴스
+- **순번(`seq_n`) 폴더별 재시작**: 폴더 A는 `1.jpg, 2.jpg, 3.jpg`, 폴더 B는 다시 `1.jpg, 2.jpg, 3.jpg, 4.jpg`
+- **`is_first` 폴더별 적용**: 각 폴더의 첫 이미지마다 `crop/main.jpg` 생성
+- 이미지별 사전 계획(`img_plan: img_path → (output_dir, resizer, seq_n, is_first)`) 빌드 후 워커에 전달
+- 파이프라인 + 리사이저 + 스테이지 콜백 모두 폴더별 경로 사용
+
+### 기술
+- `gui3.py`의 `_run_unified_photoroom`에서 OUTPUT/리사이저 그룹화 로직 추가
+- `_process_one`에서 `_img_plan` 룩업으로 폴더별 출력 경로/순번/리사이저 사용
+- 23개 단위 테스트 모두 통과 유지
 
 ---
 
