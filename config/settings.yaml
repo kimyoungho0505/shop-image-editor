@@ -256,7 +256,7 @@ resize:
       content_min_ratio: 0.005     # 행/열별 콘텐츠 비율 ≥ 0.5%면 콘텐츠 행/열 (JPEG 노이즈 무시)
       margin_ratio: 0.05           # 콘텐츠 주변 5% 여유 패딩
       subfolder: "crop"
-      filename: "main.jpg"
+      filename: "100_list.jpg"
       first_only: true             # 배치의 첫 이미지에서만 자동 생성
       # 스마트 크롭: 제품 bbox 감지 후 흰배경 패딩으로 비율 정규화 → 1500×2250 리사이즈
 

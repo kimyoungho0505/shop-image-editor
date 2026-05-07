@@ -16,7 +16,7 @@ rules:
     nukki: true
     shadow: false
 - conditions:
-    background_type: clean
+    background_type: colored
     image_type: detail
   id: detail_clean_bg
   name: 디테일컷 (흰/깨끗한 배경)
@@ -26,7 +26,7 @@ rules:
     shadow: false
 - conditions:
     background_type: colored
-    image_type: detail
+    image_type: mannequin
   id: detail_colored_bg
   name: 디테일컷 (유색 배경)
   processing:
@@ -35,6 +35,7 @@ rules:
     shadow: false
 - conditions:
     is_label_cut: true
+    shooting_angle: top_down
   id: full_shot
   name: 전체컷 (기본)
   processing:
@@ -59,3 +60,11 @@ rules:
     enhance: true
     nukki: true
     shadow: true
+- conditions:
+    image_type: jewelry
+  id: rule_8
+  name: 새 조건
+  processing:
+    enhance: false
+    nukki: false
+    shadow: false

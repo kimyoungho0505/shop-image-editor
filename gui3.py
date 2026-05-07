@@ -723,7 +723,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                        variable=self.var_resize_1500).pack(anchor="w")
         tk.Checkbutton(opts, text="860×860 (output/860/100_{n}.jpg)",
                        variable=self.var_resize_860).pack(anchor="w")
-        tk.Checkbutton(opts, text="1500×2250 크롭 (output/crop/main.jpg, 첫 이미지만)",
+        tk.Checkbutton(opts, text="1500×2250 크롭 (output/crop/100_list.jpg, 첫 이미지만)",
                        variable=self.var_resize_crop).pack(anchor="w")
 
         # 덮어쓰기
@@ -2175,7 +2175,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     # 뷰파인더 카드에 순번 저장 (image-2.0 최종 저장 시 동일 순번 사용)
                     if 0 <= vf_idx < len(self._viewfinder_pairs):
                         self._viewfinder_pairs[vf_idx]["seq_n"] = n
-                    extra = ", crop/main.jpg" if rs["crop"] is not None else ""
+                    extra = ", crop/100_list.jpg" if rs["crop"] is not None else ""
                     self._log_unified(
                         f"  📐 멀티 출력: {Path(_img_out).parent.name}/1500/{n}.jpg, "
                         f"860/100_{n}.jpg{extra}",

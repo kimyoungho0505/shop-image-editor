@@ -8,7 +8,10 @@
       "Bash(timeout 8 python gui.py)",
       "Bash(python -c \":*)",
       "WebFetch(domain:www.okmall.com)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "PowerShell(cd D:\\\\CLAUDE_CODE_WORK\\\\shop-image-editor; $p = Start-Process python -ArgumentList \"gui3.py\" -PassThru -WindowStyle Normal; Start-Sleep -Seconds 6; if \\($p.HasExited\\) { Write-Host \"종료됨 \\(exit code: $\\($p.ExitCode\\)\\)\" } else { Write-Host \"정상 실행 중 \\(PID: $\\($p.Id\\)\\)\"; $p.Kill\\(\\) })",
+      "PowerShell(Add-Type -AssemblyName System.Speech; \\(New-Object System.Speech.Synthesis.SpeechSynthesizer\\).Speak\\('완료되었습니다'\\))",
+      "PowerShell(cd D:\\\\CLAUDE_CODE_WORK\\\\shop-image-editor; $p = Start-Process python -ArgumentList \"gui3.py\" -PassThru -WindowStyle Normal; Start-Sleep -Seconds 6; if \\($p.HasExited\\) { Write-Host \"종료됨 \\(exit=$\\($p.ExitCode\\)\\)\" } else { Write-Host \"정상 실행 중 PID=$\\($p.Id\\)\"; $p.Kill\\(\\) })"
     ]
   }
 }

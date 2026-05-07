@@ -1,5 +1,5 @@
 {
-  "input_folder": "X:/촬영팀/AI/촬영본/04.10",
+  "input_folder": "X:\\촬영팀\\AI\\촬영본\\05.06\\1110519 BBLC",
   "output_folder": "X:/촬영팀/AI/촬영본/04.10/OUTPUT",
   "vision_provider": "gemini",
   "bg_provider": "removebg",
@@ -19,5 +19,10 @@
   "shadow_opacity": 0.7220588235294118,
   "_selected_files": [
     "//192.168.10.3/위즈컴퍼니 뉴 서버/WIZCOMPANY/ORDER LIST/CLAUDE/04.06/005A7163.jpg"
+  ],
+  "input_folders": [
+    "X:\\촬영팀\\AI\\촬영본\\05.06\\1110519 BBLC",
+    "X:/촬영팀/AI/촬영본\\05.06/1162011 BWHT",
+    "X:/촬영팀/AI/촬영본\\05.06/1162011 SSTT"
   ]
 }

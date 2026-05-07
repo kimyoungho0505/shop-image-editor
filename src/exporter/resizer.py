@@ -4,7 +4,7 @@
   - output/original/{stem}_1.jpg     (2250 보존)
   - output/1500/{n}.jpg              (1500×1500)
   - output/860/100_{n}.jpg           (860×860)
-  - output/crop/main.jpg             (1500×2250, 첫 이미지만)
+  - output/crop/100_list.jpg         (1500×2250, 첫 이미지만)
 """
 from __future__ import annotations
 import io
@@ -277,7 +277,7 @@ class MultiSizeResizer:
             f"→ 패딩 박스 ({win_w}×{win_h}) → 리사이즈 ({target_w}×{target_h})")
 
         sub = v.get("subfolder", "crop")
-        fname = v.get("filename", "main.jpg")
+        fname = v.get("filename", "100_list.jpg")
         dest = self.output_dir / sub / fname
         return self._save_jpeg(final, dest)
 
@@ -319,7 +319,7 @@ class MultiSizeResizer:
 
         if variants.get("crop") and v_cfg.get("crop_vertical", {}).get("enabled", True):
             v = v_cfg["crop_vertical"]
-            dest = self.output_dir / v.get("subfolder", "crop") / v.get("filename", "main.jpg")
+            dest = self.output_dir / v.get("subfolder", "crop") / v.get("filename", "100_list.jpg")
             if dest.exists() and not overwrite:
                 logger.info(f"[Resizer] 스킵(덮어쓰기 OFF): {dest}")
             else:
