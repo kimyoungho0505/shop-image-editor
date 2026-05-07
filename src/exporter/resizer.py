@@ -151,12 +151,93 @@ class MultiSizeResizer:
 
         return result
 
+    @staticmethod
+    def _detect_content_x_range(img: Image.Image,
+                                white_threshold: int = 245) -> tuple[int, int]:
+        """비어있지 않은(흰배경 아닌) 영역의 가로 범위 (x_min, x_max) 반환.
+
+        모든 픽셀이 흰배경에 가까우면 (0, w-1) 반환 (이미지 전체).
+        white_threshold: 모든 RGB 채널이 이 값 이상이면 '흰 여백'으로 간주.
+        """
+        try:
+            import numpy as np
+        except ImportError:
+            return 0, img.size[0] - 1
+
+        if img.mode == "RGBA":
+            # 알파 채널 사용 — 투명/반투명한 곳은 배경
+            arr = np.array(img.split()[3])  # alpha
+            mask = arr > 16  # 알파 16 이상이면 콘텐츠
+        else:
+            arr = np.array(img.convert("RGB"))
+            # 어느 한 채널이라도 임계값보다 낮으면 콘텐츠로 간주
+            mask = arr.min(axis=2) < white_threshold
+
+        w = img.size[0]
+        cols = mask.any(axis=0)
+        if not cols.any():
+            return 0, w - 1
+        x_min = int(np.argmax(cols))
+        x_max = int(w - 1 - np.argmax(cols[::-1]))
+        return x_min, x_max
+
     def _do_crop(self, img: Image.Image, v: dict) -> Path:
-        """1500×2250 크롭 (좌우 375 절단)."""
-        cl = int(v.get("crop_left", 375))
-        cr = int(v.get("crop_right", 375))
+        """제품 중심을 보존하는 스마트 크롭 (목표 1500×2250).
+
+        제품 바운딩 박스를 감지해 가능한 한 콘텐츠를 잘라내지 않고
+        좌/우 여백을 깎아 1500×2250 비율을 만든다.
+        제품이 너무 넓으면 중앙 기준으로 자른다.
+        """
+        target_w = int(v.get("width", 1500))
+        target_h = int(v.get("height", 2250))
+        white_thr = int(v.get("white_threshold", 245))
         w, h = img.size
-        cropped = img.crop((cl, 0, w - cr, h))
+
+        # 세로 길이 정규화 (target_h와 다르면 비율 유지로 맞춤)
+        if h != target_h:
+            scale = target_h / h
+            new_w = int(round(w * scale))
+            img = img.resize((new_w, target_h), Image.LANCZOS)
+            w, h = img.size
+
+        # 가로가 이미 target_w 이하면 그대로 (좌우 흰배경 패딩으로 채움)
+        if w <= target_w:
+            canvas = Image.new("RGB", (target_w, target_h), (255, 255, 255))
+            offset = (target_w - w) // 2
+            if img.mode == "RGBA":
+                canvas.paste(img, (offset, 0), mask=img.split()[3])
+            else:
+                canvas.paste(img.convert("RGB"), (offset, 0))
+            cropped = canvas
+            mode = "padded"
+            x_left = -offset
+        else:
+            # 콘텐츠 가로 범위 검출
+            x_min, x_max = self._detect_content_x_range(img, white_thr)
+            content_w = x_max - x_min + 1
+            content_center = (x_min + x_max) // 2
+
+            # 1) 콘텐츠가 target_w 이하 → 콘텐츠를 가능한 중앙에 배치하면서 양쪽 여백 컷
+            if content_w <= target_w:
+                # 콘텐츠 중심 기준으로 1500 윈도우 배치
+                left = content_center - target_w // 2
+                # 클램핑 — 이미지 경계 안으로
+                left = max(0, min(left, w - target_w))
+                cropped = img.crop((left, 0, left + target_w, h))
+                mode = f"content-centered (콘텐츠 폭 {content_w}px)"
+                x_left = left
+            else:
+                # 2) 콘텐츠가 target_w보다 넓음 → 콘텐츠 중심을 기준으로 크롭 (불가피하게 일부 손실)
+                left = content_center - target_w // 2
+                left = max(0, min(left, w - target_w))
+                cropped = img.crop((left, 0, left + target_w, h))
+                mode = (f"content-too-wide ({content_w}px > {target_w}px, "
+                        f"좌우 일부 손실)")
+                x_left = left
+
+        logger.info(
+            f"[Resizer] 스마트 크롭: {mode} → {cropped.size} (x_left={x_left})")
+
         sub = v.get("subfolder", "crop")
         fname = v.get("filename", "main.jpg")
         dest = self.output_dir / sub / fname

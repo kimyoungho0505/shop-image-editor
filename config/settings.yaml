@@ -250,13 +250,13 @@ resize:
 
     crop_vertical:
       enabled: true
-      width: 1500
-      height: 2250
-      crop_left: 375
-      crop_right: 375
+      width: 1500                  # 목표 가로
+      height: 2250                 # 목표 세로
+      white_threshold: 245         # 콘텐츠 감지 임계값 (RGB 모든 채널 ≥ 245면 흰배경)
       subfolder: "crop"
       filename: "main.jpg"
       first_only: true             # 배치의 첫 이미지에서만 자동 생성
+      # 스마트 크롭: 제품 바운딩 박스 감지 후 콘텐츠 손실 최소화
 
   preserve_original:
     enabled: true
