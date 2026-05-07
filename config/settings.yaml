@@ -252,13 +252,16 @@ resize:
       enabled: true
       width: 1500                  # 목표 가로
       height: 2250                 # 목표 세로
-      white_threshold: 235         # 콘텐츠 감지 임계값 (RGB min < 235면 콘텐츠)
-      content_min_ratio: 0.005     # 행/열별 콘텐츠 비율 ≥ 0.5%면 콘텐츠 행/열 (JPEG 노이즈 무시)
-      margin_ratio: 0.12           # 콘텐츠 주변 12% 여유 패딩 (제품이 잘리지 않도록 충분한 여백)
+      use_photoroom: true          # Photoroom API로 정확한 크롭 (제품 변형 없음, 장당 ~$0.10)
+      photoroom_padding: 0.05      # Photoroom 사용 시 제품 주변 5% 여유
+      white_threshold: 235         # 로컬 폴백용 — 콘텐츠 감지 임계값
+      content_min_ratio: 0.005     # 로컬 폴백용 — 행/열별 콘텐츠 비율 (JPEG 노이즈 무시)
+      margin_ratio: 0.12           # 로컬 폴백용 — 콘텐츠 주변 12% 여유 패딩
       subfolder: "crop"
       filename: "100_list.jpg"
       first_only: true             # 배치의 첫 이미지에서만 자동 생성
-      # 스마트 크롭: 제품 bbox 감지 후 흰배경 패딩으로 비율 정규화 → 1500×2250 리사이즈
+      # use_photoroom=true: Photoroom v2/edit (scaling=fit, referenceBox=subjectBox) — AI 정확 크롭
+      # use_photoroom=false 또는 API 실패 시: 로컬 fit-and-letterbox 폴백 (콘텐츠 100% 보존)
 
   preserve_original:
     enabled: true

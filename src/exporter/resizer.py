@@ -197,7 +197,74 @@ class MultiSizeResizer:
         y_max = int(h - 1 - np.argmax(rows[::-1]))
         return x_min, y_min, x_max, y_max
 
+    def _do_crop_photoroom(self, img: Image.Image, v: dict, dest: Path) -> Path | None:
+        """Photoroom API로 정확한 비율 크롭 — 제품 변형 없이 fit + padding.
+
+        실패 시 None 반환 (호출자가 fit-and-letterbox로 폴백).
+        """
+        try:
+            from src.photoroom.client import PhotoroomClient
+        except ImportError:
+            return None
+
+        target_w = int(v.get("width", 1500))
+        target_h = int(v.get("height", 2250))
+        padding = float(v.get("photoroom_padding", 0.05))
+
+        # PIL Image → bytes
+        if img.mode != "RGB":
+            if img.mode == "RGBA":
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                bg.paste(img, mask=img.split()[3])
+                img = bg
+            else:
+                img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=95)
+        img_bytes = buf.getvalue()
+
+        try:
+            client = PhotoroomClient()
+            result_bytes = client.crop_to_aspect(
+                image_bytes=img_bytes,
+                output_size=f"{target_w}x{target_h}",
+                padding=padding,
+                keep_background=True,
+                background_color="FFFFFF",
+            )
+        except Exception as e:
+            logger.warning(
+                f"[Resizer] Photoroom 크롭 실패 → fit-and-letterbox 폴백: {e}")
+            return None
+
+        # 결과 저장
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with open(dest, "wb") as f:
+            f.write(result_bytes)
+        logger.info(
+            f"[Resizer] Photoroom 크롭 성공: outputSize={target_w}x{target_h}, "
+            f"padding={padding}, {len(result_bytes)//1024}KB")
+        return dest
+
     def _do_crop(self, img: Image.Image, v: dict) -> Path:
+        """크롭 진입점 — Photoroom 옵션이 켜져 있으면 우선 시도, 실패 시 로컬 폴백.
+
+        설정: v["use_photoroom"] = True/False (settings.yaml crop_vertical)
+        """
+        sub = v.get("subfolder", "crop")
+        fname = v.get("filename", "100_list.jpg")
+        dest = self.output_dir / sub / fname
+
+        # Photoroom 옵션 우선 시도
+        if bool(v.get("use_photoroom", False)):
+            result = self._do_crop_photoroom(img, v, dest)
+            if result is not None:
+                return result
+            # 실패 시 폴백
+
+        return self._do_crop_local(img, v, dest)
+
+    def _do_crop_local(self, img: Image.Image, v: dict, dest: Path) -> Path:
         """안전한 fit-and-letterbox: 콘텐츠 절대 잘리지 않음.
 
         알고리즘 (콘텐츠 손실 0 보장):
@@ -260,9 +327,6 @@ class MultiSizeResizer:
             f"crop=({cw}×{ch}) → fit=({new_w}×{new_h}) "
             f"→ canvas=({target_w}×{target_h}, offset={offset_x},{offset_y})")
 
-        sub = v.get("subfolder", "crop")
-        fname = v.get("filename", "100_list.jpg")
-        dest = self.output_dir / sub / fname
         return self._save_jpeg(canvas, dest)
 
     def resize_from_file(

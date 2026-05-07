@@ -5,6 +5,33 @@
 
 ---
 
+## 2026-05-07 (18차) — Photoroom AI 크롭 옵션 (제품 변형 없는 정확 크롭)
+
+### 변경
+- 사용자 요청: "ai를 활용하는게 더 정확하다면 그렇게 해줘 단 photoroom을 활용하는게 원형 변형이 없을거야"
+- Photoroom v2/edit API로 정확한 1500×2250 크롭 옵션 추가
+- 파라미터: `outputSize=1500x2250`, `padding=0.05`, `scaling=fit`, `referenceBox=subjectBox`
+- Photoroom이 제품을 자동 감지해 비율 fit + 5% 패딩으로 출력 (변형 없음)
+
+### 폴백 정책
+- `use_photoroom=true` (기본): Photoroom API 우선 시도
+- API 실패 (네트워크/크레딧/오류): 자동으로 로컬 fit-and-letterbox로 폴백
+- `use_photoroom=false`: 로컬 알고리즘만 사용 (무료)
+
+### 비용
+- Photoroom: 장당 약 $0.10 (배치당 첫 이미지만, `first_only: true`이므로 폴더당 1회)
+- 로컬: 무료
+
+### 신규 메서드
+- `PhotoroomClient.crop_to_aspect(image_bytes, output_size, padding, ...)` — 정확 크롭 전용
+- `MultiSizeResizer._do_crop_photoroom(...)` — Photoroom 호출 + 실패 시 None
+- `MultiSizeResizer._do_crop_local(...)` — 기존 fit-and-letterbox
+
+### 검증
+- 22개 단위 테스트 모두 통과 (Photoroom 비활성 시 로컬 동작 검증)
+
+---
+
 ## 2026-05-07 (17차) — fit-and-letterbox 알고리즘 (콘텐츠 100% 보존 보장)
 
 ### 문제

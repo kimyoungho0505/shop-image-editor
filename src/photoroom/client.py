@@ -101,6 +101,46 @@ class PhotoroomClient:
             return True
         return False
 
+    def crop_to_aspect(
+        self,
+        image_bytes: bytes,
+        output_size: str = "1500x2250",
+        padding: float = 0.05,
+        keep_background: bool = True,
+        background_color: str = "FFFFFF",
+    ) -> bytes:
+        """Photoroom v2/edit으로 정확한 비율 크롭/리사이즈.
+
+        제품을 자동 감지해 outputSize 비율 안에 fit하며 padding만큼 여유를 둠.
+        scaling=fit이라 콘텐츠 잘림 없음. 배경은 keep_background 옵션 따라 처리.
+
+        Args:
+            image_bytes: 입력 이미지 (이미 누끼 처리된 흰배경 제품이 권장)
+            output_size: 출력 사이즈 (예: "1500x2250")
+            padding: 제품 주변 여유 비율 (0~1, 기본 0.05 = 5%)
+            keep_background: True면 흰배경 유지, False면 누끼만 추출
+            background_color: 흰배경 색 (HEX, 기본 FFFFFF)
+
+        Returns:
+            처리된 이미지 bytes (JPEG)
+
+        Raises:
+            RuntimeError: API 오류 (402 포함)
+        """
+        params = {
+            "outputSize": str(output_size),
+            "padding": str(max(0.0, min(1.0, float(padding)))),
+            "scaling": "fit",
+            "referenceBox": "subjectBox",
+            "removeBackground": "false" if keep_background else "true",
+            "background.color": background_color,
+            "export.format": "jpg",
+        }
+        logger.info(
+            f"Photoroom crop_to_aspect: outputSize={output_size}, "
+            f"padding={padding}, scaling=fit")
+        return self._call_api(image_bytes, params)
+
     def process(self, image_bytes: bytes, image_type: str, background: str,
                 output_size: str = "1000x1000",
                 config: Optional[dict] = None) -> Optional[bytes]:
