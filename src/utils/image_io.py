@@ -143,6 +143,11 @@ def get_image_files(directory: str, extensions: list = None) -> list:
         files.extend(dir_path.glob(f"*{ext}"))
         files.extend(dir_path.glob(f"*{ext.upper()}"))
 
-    files = sorted(set(files), key=lambda f: f.name)
+    # 자연수 정렬 (1.jpg, 2.jpg, ..., 10.jpg, 20.jpg 순서)
+    import re as _re
+    def _natural_key(name: str):
+        return [int(s) if s.isdigit() else s.lower()
+                for s in _re.split(r"(\d+)", name)]
+    files = sorted(set(files), key=lambda f: _natural_key(f.name))
     logger.info(f"디렉토리 '{directory}'에서 이미지 {len(files)}개 발견")
     return [str(f) for f in files]

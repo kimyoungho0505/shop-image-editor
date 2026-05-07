@@ -2016,6 +2016,13 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self._viewfinder_pairs = []
         self._vf_file_stages = {}
         self.btn_unified_vf.config(state="normal")
+
+        # 뷰파인더에 모든 파일을 입력 순서대로 사전 등록 (워커 시작 전)
+        # → 병렬 처리되어도 카드 순서는 입력 폴더의 자연수 정렬 그대로 유지됨
+        self._vf_pre_registered = {}   # img_path → vf_idx
+        for _img in file_list:
+            _vfi = self._vf_register_file(_img)
+            self._vf_pre_registered[_img] = _vfi
         self.after(100, self._open_viewfinder)
 
         shadow_mode = self.var_unified_shadow_mode.get()
@@ -2043,8 +2050,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             else:
                 _img_out, _img_resizer, _img_seq_n, _img_is_first = _plan
             self._log_unified(f"-- [{idx}/{total}] {fname} 시작 --")
-            with lock:
-                vf_idx = self._vf_register_file(img_path)
+            # 사전 등록된 vf_idx 재사용 (입력 순서 보장)
+            vf_idx = self._vf_pre_registered.get(img_path, -1)
+            if vf_idx < 0:
+                # fallback: 사전 등록 누락 시 즉시 등록
+                with lock:
+                    vf_idx = self._vf_register_file(img_path)
             try:
                 from src.pipeline import (
                     ImageEditPipeline, ClaidNoCreditError, PhotoroomNoCreditError)
