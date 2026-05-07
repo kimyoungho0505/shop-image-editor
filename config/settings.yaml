@@ -254,7 +254,7 @@ resize:
       height: 2250                 # 목표 세로
       white_threshold: 235         # 콘텐츠 감지 임계값 (RGB min < 235면 콘텐츠)
       content_min_ratio: 0.005     # 행/열별 콘텐츠 비율 ≥ 0.5%면 콘텐츠 행/열 (JPEG 노이즈 무시)
-      margin_ratio: 0.05           # 콘텐츠 주변 5% 여유 패딩
+      margin_ratio: 0.12           # 콘텐츠 주변 12% 여유 패딩 (제품이 잘리지 않도록 충분한 여백)
       subfolder: "crop"
       filename: "100_list.jpg"
       first_only: true             # 배치의 첫 이미지에서만 자동 생성

@@ -211,7 +211,7 @@ class MultiSizeResizer:
         target_h = int(v.get("height", 2250))
         white_thr = int(v.get("white_threshold", 235))
         # 콘텐츠 주변 여유 비율 (콘텐츠 폭/높이 대비 %)
-        margin_ratio = float(v.get("margin_ratio", 0.05))
+        margin_ratio = float(v.get("margin_ratio", 0.12))
         # 행/열별 콘텐츠 인정 비율 (JPEG 노이즈 무시용)
         min_ratio = float(v.get("content_min_ratio", 0.005))
         w, h = img.size
