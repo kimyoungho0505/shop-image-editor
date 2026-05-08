@@ -4043,13 +4043,21 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             else:
                 badge = "ℹ️ 검증 없음"
             label = f"image-2.0 {r.get('quality','?')} ({i+1}차) {badge}"
+            row = tk.Frame(frm, bg=bg)
+            row.pack(fill="x", anchor="w")
             tk.Radiobutton(
-                frm, text=label,
+                row, text=label,
                 variable=sel_var, value=i,
                 command=lambda x=i: self._vf_image2_select(vf_idx, x),
                 font=("맑은 고딕", 9),
                 bg=bg, anchor="w",
-            ).pack(anchor="w")
+            ).pack(side="left")
+            tk.Button(
+                row, text="👁 보기",
+                command=lambda x=i: self._vf_image2_preview(vf_idx, x),
+                font=("맑은 고딕", 8),
+                bg="#3498db", fg="white", padx=6, bd=0, cursor="hand2",
+            ).pack(side="left", padx=(8, 0))
             if v and not v.get("safe"):
                 issues = "; ".join(v.get("issues", []))[:80]
                 if issues:
@@ -4062,6 +4070,124 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         """라디오 변경 처리 — 메모리에만 반영. 최종 저장은 별도 버튼."""
         if 0 <= vf_idx < len(self._viewfinder_pairs):
             self._viewfinder_pairs[vf_idx]["image2_selected_idx"] = choice_idx
+
+    def _vf_image2_preview(self, vf_idx: int, result_idx: int):
+        """image-2.0 결과 미리보기 — 편집본 vs 보정본 좌우 비교."""
+        import io as _io
+        from PIL import Image as _Image, ImageTk as _ImageTk
+
+        if vf_idx >= len(self._viewfinder_pairs):
+            return
+        item = self._viewfinder_pairs[vf_idx]
+        results = item.get("image2_results", [])
+        if result_idx < 0 or result_idx >= len(results):
+            return
+        r = results[result_idx]
+        enhanced_bytes = r.get("bytes")
+        if not enhanced_bytes:
+            messagebox.showerror("오류", "결과 이미지가 없습니다.",
+                                 parent=self._vf_dlg)
+            return
+
+        # 편집본 경로
+        orig_path = self._vf_image2_get_source(vf_idx)
+        orig_img = None
+        if orig_path and orig_path.exists():
+            try:
+                orig_img = _Image.open(orig_path)
+            except Exception:
+                orig_img = None
+
+        # 보정본 PIL Image
+        try:
+            enh_img = _Image.open(_io.BytesIO(enhanced_bytes))
+        except Exception as e:
+            messagebox.showerror("오류", f"이미지 디코드 실패:\n{e}",
+                                 parent=self._vf_dlg)
+            return
+
+        # 다이얼로그
+        dlg = tk.Toplevel(self._vf_dlg)
+        v = r.get("verification") or {}
+        v_label = "✅ 검증 통과" if v.get("safe") else (
+            "⚠️ 변형 감지" if v else "ℹ️ 검증 없음")
+        dlg.title(f"image-2.0 미리보기 — {r.get('quality','?')} ({result_idx+1}차) {v_label}")
+        dlg.configure(bg="#1e1e2e")
+
+        # 사이즈: 화면 85%
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        dw = int(sw * 0.85)
+        dh = int(sh * 0.85)
+        dlg.geometry(f"{dw}x{dh}+{(sw-dw)//2}+{(sh-dh)//2}")
+
+        # 헤더
+        hdr = tk.Frame(dlg, bg="#1e1e2e")
+        hdr.pack(fill="x", pady=8)
+        tk.Label(
+            hdr, text="📷 편집본 (원본)",
+            bg="#1e1e2e", fg="#cdd6f4",
+            font=("맑은 고딕", 11, "bold"),
+        ).pack(side="left", expand=True)
+        tk.Label(
+            hdr, text=f"✨ image-2.0 {r.get('quality','?')} ({result_idx+1}차)",
+            bg="#1e1e2e", fg="#f9e2af",
+            font=("맑은 고딕", 11, "bold"),
+        ).pack(side="left", expand=True)
+
+        # 이미지 영역 (좌: 원본, 우: 보정)
+        img_frame = tk.Frame(dlg, bg="#1e1e2e")
+        img_frame.pack(fill="both", expand=True, padx=12, pady=4)
+        img_frame.columnconfigure(0, weight=1)
+        img_frame.columnconfigure(1, weight=1)
+        img_frame.rowconfigure(0, weight=1)
+
+        cv_l = tk.Canvas(img_frame, bg="#11111b", highlightthickness=0, bd=0)
+        cv_l.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+        cv_r = tk.Canvas(img_frame, bg="#11111b", highlightthickness=0, bd=0)
+        cv_r.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
+
+        photos = []
+        def _fit(canvas, pil_img):
+            if not pil_img:
+                return
+            cw = canvas.winfo_width()
+            ch = canvas.winfo_height()
+            if cw <= 1 or ch <= 1:
+                return
+            iw, ih = pil_img.size
+            scale = min(cw / iw, ch / ih, 1.0)
+            new_size = (max(1, int(iw * scale)), max(1, int(ih * scale)))
+            resized = pil_img.resize(new_size, _Image.LANCZOS)
+            photo = _ImageTk.PhotoImage(resized)
+            photos.append(photo)
+            canvas.delete("all")
+            canvas.create_image(cw // 2, ch // 2, image=photo, anchor="center")
+
+        # 정보 행 (변형 감지 시 표시)
+        if v and not v.get("safe") and v.get("issues"):
+            info = tk.Frame(dlg, bg="#1e1e2e")
+            info.pack(fill="x", padx=12, pady=(4, 0))
+            tk.Label(
+                info,
+                text=f"⚠️ 변형 감지: {'; '.join(v.get('issues', []))[:200]}",
+                bg="#1e1e2e", fg="#f38ba8",
+                font=("맑은 고딕", 9), wraplength=dw - 60,
+                justify="left",
+            ).pack(anchor="w")
+
+        # 닫기
+        tk.Button(
+            dlg, text="닫기", command=dlg.destroy,
+            font=("맑은 고딕", 10), padx=18, pady=4,
+        ).pack(pady=(8, 12))
+
+        def _redraw(_e=None):
+            _fit(cv_l, orig_img)
+            _fit(cv_r, enh_img)
+        dlg.after(80, _redraw)
+        cv_l.bind("<Configure>", _redraw)
+        cv_r.bind("<Configure>", _redraw)
 
     def _vf_image2_detect_category(self, vf_idx: int) -> str:
         """Vision 분석 결과에서 image-2.0 프롬프트 카테고리 매핑."""
