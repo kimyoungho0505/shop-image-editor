@@ -3560,10 +3560,15 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                         dlg.after(0, lambda: lbl_rp_status.config(
                             text="RemoveBG \ub204\ub07c \uc791\uc5c5 \uc911...", fg=VF_ACCENT))
                         rb = RemoveBgClient()
-                        res = rb.process(current)
-                        if res:
-                            current = res
-                            steps_done.append("누끼(RemoveBG)")
+                        rb_config = {
+                            "size": "auto",
+                            "type": "product",
+                            "format": "jpg",
+                            "bg_color": "ffffff",
+                        }
+                        res = rb.process(current, "full", "clean",
+                                         output_size="1000x1000", config=rb_config)
+
 
                     # 보정
                     if use_enhance:
