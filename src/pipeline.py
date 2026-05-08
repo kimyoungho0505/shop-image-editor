@@ -4890,6 +4890,10 @@ class ImageEditPipeline:
                             # 주얼리: category == "jewelry"
                             if detected_category != "jewelry":
                                 continue
+                        elif cond_it == "clothing":
+                            # 의류: category == "clothing" (또는 worn 타입 — 옷이 입혀진 형태)
+                            if detected_category != "clothing" and image_type != "worn":
+                                continue
                         elif cond_it != image_type:
                             continue
                     if "background_type" in cond and cond["background_type"] != bg_type:

@@ -1194,7 +1194,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                      font=(FONT_FAMILY, 9)).grid(row=1, column=0, sticky="w", padx=(0,4), pady=2)
             ttk.Combobox(cond_row, textvariable=var_it,
                          values=["any", "full", "detail", "worn",
-                                 "mannequin", "model", "jewelry", "package"],
+                                 "mannequin", "model", "jewelry", "clothing",
+                                 "package"],
                          width=10, state="readonly", font=(FONT_FAMILY, 9)
                          ).grid(row=1, column=1, sticky="w", padx=(0,16), pady=2)
 
