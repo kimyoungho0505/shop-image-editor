@@ -4,6 +4,7 @@ from .client import (
     GPTImage2Result,
     VerificationResult,
     GPTImage2NoCreditError,
+    GPTImage2OrgVerificationError,
 )
 
 __all__ = [
@@ -11,4 +12,5 @@ __all__ = [
     "GPTImage2Result",
     "VerificationResult",
     "GPTImage2NoCreditError",
+    "GPTImage2OrgVerificationError",
 ]

@@ -4248,6 +4248,63 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             lbl.pack(side="left", padx=2)
             slot["dynamic_widgets"].append(lbl)
 
+    def _vf_show_org_verify_dialog(self):
+        """OpenAI 조직 검증 필요 안내 다이얼로그 (클릭 가능한 링크 포함)."""
+        import webbrowser as _wb
+        url = "https://platform.openai.com/settings/organization/general"
+        dlg = tk.Toplevel(self._vf_dlg)
+        dlg.title("⚠️ OpenAI 조직 검증 필요")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.focus_set()
+
+        frm = tk.Frame(dlg, padx=22, pady=16)
+        frm.pack(fill="both", expand=True)
+
+        tk.Label(
+            frm,
+            text="⚠️  OpenAI 조직 검증이 필요합니다",
+            font=("맑은 고딕", 12, "bold"),
+            fg="#c0392b",
+            anchor="w",
+        ).pack(fill="x", pady=(0, 8))
+
+        tk.Label(
+            frm,
+            text=(
+                "gpt-image-2 모델은 OpenAI에서 조직 검증을 완료한 계정만\n"
+                "사용할 수 있습니다.\n\n"
+                "  1️⃣  아래 링크 클릭 → OpenAI 설정 페이지 열림\n"
+                "  2️⃣  'Verify Organization' 버튼 클릭\n"
+                "  3️⃣  검증 완료 후 최대 15분 대기\n"
+                "  4️⃣  다시 image-2.0 보정 실행"
+            ),
+            font=("맑은 고딕", 10),
+            justify="left",
+            anchor="w",
+        ).pack(fill="x")
+
+        link = tk.Label(
+            frm,
+            text=f"🔗 {url}",
+            font=("맑은 고딕", 9, "underline"),
+            fg="#2980b9",
+            cursor="hand2",
+            anchor="w",
+        )
+        link.pack(fill="x", pady=(8, 0))
+        link.bind("<Button-1>", lambda _e: _wb.open(url))
+
+        tk.Button(
+            dlg, text="확인", width=10, command=dlg.destroy,
+            font=("맑은 고딕", 10),
+        ).pack(pady=(0, 14))
+
+        dlg.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - dlg.winfo_width()) // 2
+        y = self.winfo_y() + (self.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{x}+{y}")
+
     def _vf_image2_run(self, vf_idx, src_path, enhance_prompt,
                        verify_prompt, quality, run_verify, category):
         """백그라운드 스레드에서 image-2.0 보정+검증 실행."""
@@ -4262,7 +4319,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         def _worker():
             from src.openai_image import (
-                GPTImage2Client, GPTImage2NoCreditError)
+                GPTImage2Client, GPTImage2NoCreditError,
+                GPTImage2OrgVerificationError)
             try:
                 with open(src_path, "rb") as f:
                     img_bytes = f.read()
@@ -4324,6 +4382,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     parent=self._vf_dlg))
                 self._log_unified(
                     f"  ❌ image-2.0 — 크레딧 부족", "error")
+            except GPTImage2OrgVerificationError:
+                self.after(0, lambda: self._vf_image2_add_stage(
+                    vf_idx, stage_label, "error"))
+                self.after(0, self._vf_show_org_verify_dialog)
+                self._log_unified(
+                    f"  ❌ image-2.0 — OpenAI 조직 검증 필요", "error")
             except Exception as e:
                 self.after(0, lambda: self._vf_image2_add_stage(
                     vf_idx, stage_label, "error"))

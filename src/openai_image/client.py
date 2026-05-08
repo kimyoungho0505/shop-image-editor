@@ -33,6 +33,15 @@ class GPTImage2NoCreditError(RuntimeError):
     """OpenAI 크레딧 부족 (HTTP 402)."""
 
 
+class GPTImage2OrgVerificationError(RuntimeError):
+    """OpenAI 조직 검증 필요 (HTTP 403).
+
+    gpt-image-2는 조직 검증이 완료된 OpenAI 계정만 사용 가능.
+    https://platform.openai.com/settings/organization/general 에서
+    'Verify Organization' 클릭 후 최대 15분 대기.
+    """
+
+
 # OpenAI gpt-image-2 quality tiers: low | medium | high
 # (Earlier marketing materials used "hd" — alias preserved for compat)
 _COST_PER_IMAGE = {
@@ -80,11 +89,18 @@ class GPTImage2Client:
             )
         except APIStatusError as e:
             status = getattr(getattr(e, "response", None), "status_code", None)
+            msg = str(e)
             if status == 402:
                 logger.error("[GPTImage2] 크레딧 부족 (402)")
                 raise GPTImage2NoCreditError(
                     "OpenAI 크레딧이 부족합니다. "
                     "https://platform.openai.com/account/billing/overview")
+            if status == 403 and "must be verified" in msg.lower():
+                logger.error("[GPTImage2] 조직 검증 필요 (403)")
+                raise GPTImage2OrgVerificationError(
+                    "OpenAI 조직 검증이 필요합니다.\n"
+                    "https://platform.openai.com/settings/organization/general "
+                    "에서 'Verify Organization' 클릭 후 최대 15분 대기.")
             raise
         elapsed = time.time() - t0
 
