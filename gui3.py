@@ -2935,6 +2935,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         dlg.configure(bg=VF_BG)
 
         current_idx = [0]
+        self._vf_current_idx_ref = current_idx  # 외부 접근용 (image-2.0 완료 시 탭 재구성)
         out_idx = [0]
         photo_refs = []
 
@@ -3273,8 +3274,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                  font=(FONT_FAMILY, 11, "bold"))
         lbl_right_title.pack(side="left", expand=True)
 
-        # 단계별 보기 탭 바 (4개: 원본 / 누끼+그림자 / 보정 / 최종)
-        _STAGE_TABS = ["원본", "누끼+그림자", "보정", "최종"]
+        # 단계별 보기 탭 바 (정적 4개 + 카드별 image-2.0 결과)
+        _STAGE_TABS_STATIC = ["원본", "누끼+그림자", "보정", "최종"]
         stage_tab_frame = tk.Frame(right, bg=VF_BG)
         stage_tab_frame.pack(fill="x", padx=12, pady=(4, 4))
         stage_mode = ["원본"]  # 기본: 원본 단계
@@ -3289,16 +3290,44 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     btn.configure(bg=VF_CARD, fg=VF_TEXT)
             _show(current_idx[0], out_idx[0])
 
-        for tab in _STAGE_TABS:
-            btn = tk.Button(stage_tab_frame, text=tab, bg=VF_CARD, fg=VF_TEXT,
-                            font=(FONT_FAMILY, 9), bd=0, padx=8, pady=2,
-                            activebackground=VF_ACCENT, activeforeground=VF_BG,
-                            cursor="hand2",
-                            command=lambda t=tab: _select_stage_tab(t))
-            btn.pack(side="left", padx=2)
-            stage_tab_btns[tab] = btn
-        # 기본: 원본 탭 활성
-        stage_tab_btns["원본"].configure(bg=VF_ACCENT, fg=VF_BG)
+        def _rebuild_stage_tabs(vf_idx: int = -1):
+            """현재 선택된 카드의 image-2.0 결과 수에 따라 탭 재구성."""
+            for w in stage_tab_frame.winfo_children():
+                w.destroy()
+            stage_tab_btns.clear()
+
+            tabs = list(_STAGE_TABS_STATIC)
+            # 현재 카드의 image-2.0 결과를 추가 탭으로
+            if 0 <= vf_idx < len(self._viewfinder_pairs):
+                results = self._viewfinder_pairs[vf_idx].get("image2_results", [])
+                for i in range(len(results)):
+                    tabs.append(f"image-2.0 ({i+1}차)")
+
+            for tab in tabs:
+                is_image2 = tab.startswith("image-2.0")
+                btn = tk.Button(
+                    stage_tab_frame, text=tab,
+                    bg=VF_CARD, fg=VF_TEXT,
+                    font=(FONT_FAMILY, 9, "bold" if is_image2 else "normal"),
+                    bd=0, padx=8, pady=2,
+                    activebackground=VF_ACCENT, activeforeground=VF_BG,
+                    cursor="hand2",
+                    command=lambda t=tab: _select_stage_tab(t))
+                btn.pack(side="left", padx=2)
+                stage_tab_btns[tab] = btn
+
+            # 현재 stage_mode 상태가 신규 탭 목록에 있으면 활성, 없으면 첫 탭으로
+            cur = stage_mode[0]
+            if cur not in stage_tab_btns:
+                cur = tabs[0]
+                stage_mode[0] = cur
+            stage_tab_btns[cur].configure(bg=VF_ACCENT, fg=VF_BG)
+
+        # 외부 메서드에서 호출할 수 있도록 노출 (image-2.0 결과 추가 시 재구성용)
+        self._vf_rebuild_stage_tabs = _rebuild_stage_tabs
+
+        # 초기 탭 (정적 4개만)
+        _rebuild_stage_tabs(-1)
 
         # 캔버스 영역
         canvas_frame = tk.Frame(right, bg=VF_BG)
@@ -3748,7 +3777,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
             inp = pair["input_path"]
             fname = Path(inp).name
-            sm = stage_mode[0]  # 항상 stage 이름 ("원본", "누끼+그림자", "보정", "최종")
+            # 카드 변경 시 stage 탭 재구성 (image-2.0 결과 반영)
+            try:
+                self._vf_rebuild_stage_tabs(idx)
+            except Exception:
+                pass
+            sm = stage_mode[0]  # "원본", "누끼+그림자", "보정", "최종", 또는 "image-2.0 (N차)"
             stage_order = ["원본", "누끼+그림자", "보정", "최종"]
             si_idx = stage_order.index(sm) if sm in stage_order else 0
             # 왼쪽: 이전 단계 (원본 탭이면 입력 파일, 그 외면 이전 단계)
@@ -3779,6 +3813,68 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     lbl_orig_info.config(text="")
 
             # 우측 (현재 단계)
+            # image-2.0 탭이면 — 좌측은 편집본(최종), 우측은 image-2.0 결과
+            if sm.startswith("image-2.0"):
+                import re as _re_i2
+                import io as _io_i2
+                m = _re_i2.search(r"\((\d+)차\)", sm)
+                i2_idx = int(m.group(1)) - 1 if m else 0
+                results = pair.get("image2_results", [])
+                # 좌측: 최종 편집본 (OUTPUT/original/{stem}_1.jpg) 우선
+                left_img = None
+                left_label = "편집본 (최종)"
+                try:
+                    src_path = self._vf_image2_get_source(idx)
+                    if src_path and Path(src_path).exists():
+                        left_img = Image.open(src_path)
+                except Exception:
+                    left_img = None
+                if left_img is None:
+                    # 폴백: 입력 원본
+                    try:
+                        left_img = Image.open(inp)
+                        left_label = "입력 원본"
+                    except Exception:
+                        left_img = None
+                if left_img is not None:
+                    _fit_image(cv_orig, left_img)
+                    w, h = left_img.size
+                    lbl_orig_info.config(text=f"{left_label}  ·  {w}×{h}")
+                    lbl_left_title.config(text=f"\U0001f4f7  {left_label}")
+                else:
+                    _show_placeholder(cv_orig, "편집본 없음", "\U0001f5bc️")
+                    lbl_orig_info.config(text="")
+                # 우측: image-2.0 결과
+                lbl_right_title.config(text=f"✨  {sm}")
+                if 0 <= i2_idx < len(results):
+                    r_dict = results[i2_idx]
+                    enh_bytes = r_dict.get("bytes")
+                    if enh_bytes:
+                        try:
+                            i2_img = Image.open(_io_i2.BytesIO(enh_bytes))
+                            _fit_image(cv_proc, i2_img)
+                            pw, ph = i2_img.size
+                            v = r_dict.get("verification") or {}
+                            badge = ("✅ 검증 통과" if v.get("safe")
+                                     else ("⚠️ 변형 감지" if v else "ℹ️ 검증 없음"))
+                            lbl_proc_info.config(
+                                text=f"{r_dict.get('quality','?')} ({i2_idx+1}차) "
+                                     f"· {pw}×{ph} · {badge}")
+                        except Exception:
+                            _show_placeholder(cv_proc, "디코드 실패", "\U0001f5bc️")
+                            lbl_proc_info.config(text="")
+                    else:
+                        _show_placeholder(cv_proc, "결과 데이터 없음", "✖")
+                        lbl_proc_info.config(text="")
+                else:
+                    _show_placeholder(cv_proc, "결과 없음", "✖")
+                    lbl_proc_info.config(text="")
+                lbl_out_sel.config(text="")
+                _update_validation_display(pair)
+                _update_vision_display(pair)
+                _update_routing_display(pair)
+                return
+
             if sm == "원본":
                 # 원본 탭은 우측에 출력 결과 표시 (비교 모드와 유사)
                 out_files = pair.get("output_files", [])
@@ -4496,6 +4592,14 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                         state = "warning"
                     self._vf_image2_add_stage(vf_idx, stage_label, state)
                     self._vf_render_image2_options(vf_idx)
+                    # 현재 표시된 카드면 stage 탭에 새 image-2.0 탭 추가
+                    try:
+                        cur_ref = getattr(self, "_vf_current_idx_ref", None)
+                        if (cur_ref is not None and cur_ref[0] == vf_idx
+                                and hasattr(self, "_vf_rebuild_stage_tabs")):
+                            self._vf_rebuild_stage_tabs(vf_idx)
+                    except Exception:
+                        pass
                     issues_msg = ""
                     if ver and not ver.safe and ver.issues:
                         issues_msg = f" ⚠️ {ver.issues[0]}"
