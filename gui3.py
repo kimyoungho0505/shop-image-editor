@@ -4122,44 +4122,68 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         sel_var.set(item.get("image2_selected_idx", -1))
 
         bg = frm.cget("bg")
+        # 다크 테마 색상 정의
+        TXT = "#cdd6f4"     # 기본 텍스트 (밝은 회백)
+        SEL_BG = "#313244"  # 셀렉트 인디케이터 배경
+        OK_FG = "#a6e3a1"   # 검증 통과 — 녹색
+        WARN_FG = "#fab387" # 변형 감지 — 주황
+        INFO_FG = "#74c7ec" # 검증 없음 — 청록
+        ISSUE_FG = "#f38ba8"  # 변형 상세 — 빨강
 
         # 편집본
         tk.Radiobutton(
-            frm, text="◉ 편집본 (기본)",
+            frm, text="편집본 (기본)",
             variable=sel_var, value=-1,
             command=lambda: self._vf_image2_select(vf_idx, -1),
             font=("맑은 고딕", 9),
-            bg=bg, anchor="w",
+            bg=bg, fg=TXT,
+            selectcolor=SEL_BG,
+            activebackground=bg, activeforeground=TXT,
+            anchor="w",
         ).pack(anchor="w")
 
         # image-2.0 결과들
         for i, r in enumerate(item.get("image2_results", [])):
             v = r.get("verification") or {}
             if v:
-                badge = "✅ 검증 통과" if v.get("safe") else "⚠️ 변형 감지"
+                badge_text = "✓ 검증 통과" if v.get("safe") else "⚠ 변형 감지"
+                badge_fg = OK_FG if v.get("safe") else WARN_FG
             else:
-                badge = "ℹ️ 검증 없음"
-            label = f"image-2.0 {r.get('quality','?')} ({i+1}차) {badge}"
+                badge_text = "ℹ 검증 없음"
+                badge_fg = INFO_FG
             row = tk.Frame(frm, bg=bg)
-            row.pack(fill="x", anchor="w")
+            row.pack(fill="x", anchor="w", pady=(1, 0))
             tk.Radiobutton(
-                row, text=label,
+                row, text=f"image-2.0 {r.get('quality','?')} ({i+1}차)",
                 variable=sel_var, value=i,
                 command=lambda x=i: self._vf_image2_select(vf_idx, x),
                 font=("맑은 고딕", 9),
-                bg=bg, anchor="w",
+                bg=bg, fg=TXT,
+                selectcolor=SEL_BG,
+                activebackground=bg, activeforeground=TXT,
+                anchor="w",
             ).pack(side="left")
+            # 검증 배지 — 별도 Label로 색만 다르게
+            tk.Label(
+                row, text=badge_text,
+                font=("맑은 고딕", 8, "bold"),
+                bg=bg, fg=badge_fg,
+            ).pack(side="left", padx=(4, 4))
+            # 보기 버튼
             tk.Button(
                 row, text="👁 보기",
                 command=lambda x=i: self._vf_image2_preview(vf_idx, x),
                 font=("맑은 고딕", 8),
-                bg="#3498db", fg="white", padx=6, bd=0, cursor="hand2",
-            ).pack(side="left", padx=(8, 0))
+                bg="#3498db", fg="white",
+                activebackground="#2980b9", activeforeground="white",
+                padx=6, pady=0, bd=0, cursor="hand2",
+            ).pack(side="left", padx=(4, 0))
+            # 변형 감지 상세 (있으면 한 줄 아래)
             if v and not v.get("safe"):
                 issues = "; ".join(v.get("issues", []))[:80]
                 if issues:
                     tk.Label(frm, text=f"   → {issues}",
-                             font=("맑은 고딕", 8), fg="#c0392b",
+                             font=("맑은 고딕", 8), fg=ISSUE_FG,
                              bg=bg, anchor="w"
                              ).pack(anchor="w")
 
