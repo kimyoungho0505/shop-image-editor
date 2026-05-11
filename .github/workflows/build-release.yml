@@ -33,6 +33,7 @@ jobs:
             requests anthropic openai google-genai `
             Pillow numpy opencv-python `
             python-dotenv pyyaml loguru `
+            pyttsx3 tkinterdnd2 pywin32 `
             pyinstaller
 
       # ── 버전 태그에서 버전 번호 추출 ────────────────────────────

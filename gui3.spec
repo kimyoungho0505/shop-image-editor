@@ -69,6 +69,9 @@ hidden_imports = [
     "src.opencv_enhance.enhancer",
     "src.exporter.namer",
     "src.exporter.optimizer",
+    "src.exporter.resizer",        # 신규 — BatchCounter, MultiSizeResizer
+    "src.openai_image",             # 신규 — gpt-image-2 사후 보정
+    "src.openai_image.client",
     "src.sam.client",
     "src.utils.image_io",
     "src.utils.category",
