@@ -156,9 +156,11 @@ def apply_update(new_exe_path: str) -> None:
     current_exe = sys.executable
     bat_path = os.path.join(tempfile.gettempdir(), "luxboy_update_apply.bat")
 
+    # 배치: EXE가 완전 종료되기를 기다린 후 교체 + PyInstaller _MEI 임시폴더도 함께 정리.
+    # 더 긴 대기(5초)로 파일 핸들이 풀릴 시간 확보 → "Failed to remove temporary directory" 경고 회피.
     bat = f"""@echo off
 chcp 65001 > nul
-timeout /t 2 /nobreak > nul
+timeout /t 5 /nobreak > nul
 echo 업데이트 적용 중...
 copy /y "{new_exe_path}" "{current_exe}"
 if errorlevel 1 (
@@ -167,6 +169,8 @@ if errorlevel 1 (
     goto :eof
 )
 del "{new_exe_path}"
+:: PyInstaller _MEI 잔여 폴더 정리 (있으면)
+for /d %%D in ("%TEMP%\\_MEI*") do rd /s /q "%%D" 2>nul
 echo 업데이트 완료. 재시작합니다.
 start "" "{current_exe}"
 del "%~f0"
@@ -176,7 +180,8 @@ del "%~f0"
 
     logger.info(f"[Updater] 업데이트 배치 실행: {bat_path}")
     subprocess.Popen(["cmd", "/c", bat_path], creationflags=subprocess.CREATE_NO_WINDOW)
-    sys.exit(0)
+    # sys.exit 대신 os._exit로 더 깔끔히 종료 (PyInstaller 정리 단계 스킵 → 경고 회피)
+    os._exit(0)
 
 
 # ──────────────────────────────────────────────
