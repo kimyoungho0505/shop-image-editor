@@ -46,13 +46,18 @@ jobs:
       - name: Update version.py
         shell: python
         run: |
-          import re, pathlib
+          import re, pathlib, sys
+          # Windows 기본 cp1252 콘솔에서 비ASCII 출력 보호
+          try:
+              sys.stdout.reconfigure(encoding="utf-8")
+          except Exception:
+              pass
           ver = "${{ steps.ver.outputs.version }}"
           path = pathlib.Path("version.py")
           text = path.read_text(encoding="utf-8")
           text = re.sub(r'__version__\s*=\s*"[^"]+"', f'__version__ = "{ver}"', text)
           path.write_text(text, encoding="utf-8")
-          print(f"version.py → {ver}")
+          print(f"version.py -> {ver}")
 
       # ── PyInstaller 빌드 ──────────────────────────────────────
       - name: Build EXE
