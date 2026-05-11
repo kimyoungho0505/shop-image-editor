@@ -1,78 +1,198 @@
-# ─────────────────────────────────────────────────────────
-# gpt-image-2 사후 보정 + 검증 프롬프트 설정
-# 카테고리는 Vision 분석 결과(detected_category, image_type, has_mannequin)로 자동 매핑
-# ─────────────────────────────────────────────────────────
 image2:
-  default_quality: medium        # low | medium | high
-  default_size: "1024x1024"
-
+  default_quality: medium
+  default_size: 1024x1024
   verification:
-    model: "gpt-4o-mini"
-    block_on_unsafe: false       # true면 변형 감지 결과는 토글 비활성화
-
+    model: gpt-4o-mini
+    block_on_unsafe: false
   prompts:
     default:
-      enhance: |
-        Enhance this product photo for an e-commerce listing.
+      enhance: 'Enhance this product photo for an e-commerce listing.
+
         Improve sharpness, color accuracy, and lighting.
+
         Keep the product, pose, and composition exactly the same.
+
         Pure white background. No text, no watermarks.
-      verify: |
-        Compare the original (first image) and enhanced (second image).
+
+        '
+      verify: 'Compare the original (first image) and enhanced (second image).
+
         Check if logos, text, brand marks, or distinctive product features
+
         have been altered, distorted, or blurred.
+
         Respond ONLY in JSON: {"safe": true|false, "issues": ["short Korean strings"]}.
 
+        '
     jewelry:
-      enhance: |
-        Enhance details and reflective highlights on this jewelry product photo.
+      enhance: 'Enhance details and reflective highlights on this jewelry product
+        photo.
+
         Keep engravings, gemstones, metal texture, and brand marks sharp and accurate.
+
         Do not alter shape, color, or proportions of stones and metalwork.
+
         Pure white background.
-      verify: |
-        Compare the original and enhanced jewelry images.
+
+        '
+      verify: 'Compare the original and enhanced jewelry images.
+
         Check for changes in engravings, gemstones, settings, or brand marks.
+
         Respond ONLY in JSON: {"safe": true|false, "issues": ["short Korean strings"]}.
 
+        '
     mannequin:
-      enhance: |
-        Enhance fabric texture, folds, and color accuracy of this clothing on mannequin.
-        Smooth mannequin contours but keep clothing exactly as is.
-        Do not change garment shape or print details.
-      verify: |
-        Compare original and enhanced mannequin clothing photos.
-        Check if logos, prints, embroidery, buttons, or seams were altered.
-        Respond ONLY in JSON: {"safe": true|false, "issues": ["short Korean strings"]}.
+      enhance: '원본 의류는 절대 변형하지 말고 그대로 유지해줘.
 
+        형태, 비율, 색상, 로고, 프린트, 지퍼, 버튼, 라벨, 스티치, 패턴, 원단 디테일, 실루엣, 소매, 밑단, 카라 형태를 변경하지
+        마.
+
+
+        의류 제품 자체는 새로 그리거나 재생성하지 말고, 원본을 유지한 상태에서 공식 홈페이지 상품컷처럼 깔끔한 스튜디오 이미지로 보정해줘.
+
+
+        배경은 깨끗한 화이트 톤으로 정리해줘.
+
+        원본에 명확한 그림자가 없는 경우 새로운 바닥 그림자를 추가하지 말아줘. 원본에 약한 그림자가 있는 경우에만 자연스럽게 정리해줘.
+
+
+        과한 구김, 눌림 자국, 비정상적인 주름은 자연스럽게 정돈하되, 원단 질감과 입체감은 유지해줘. 주름을 완전히 없애지 말고 다림질한
+        새 상품처럼 자연스럽게 정리해줘.
+
+
+        누끼가 잘 따이지 않은 경우에는 의류 주변의 지저분한 누끼 부분만 정리해줘.
+
+        의류 아래나 가장자리 밖으로 튀어나온 마네킹, 흰색 받침, 보조 지지물, 배경 불량 부분은 제거해줘.
+
+
+        작업은 오직 다음만 수행해줘:
+
+        1. 의류 주변의 지저분한 누끼 부분 정리
+
+        2. 의류 아래로 튀어나온 마네킹/흰색 받침 제거
+
+        3. 배경 정리
+
+        4. 과한 주름 정돈
+
+
+        의류를 새로 그리거나 보정하지 말고, 마네킹과 배경 불량 부분만 제거해줘.
+
+        새로운 로고, 장식, 선, 포켓, 스티치, 버튼, 주름, 그림자는 추가하지 말아줘.
+
+        추가 소품, 사람, 마네킹, 텍스트는 넣지 말아줘.'
+      verify: '너는 명품 쇼핑몰 상품 이미지 재검수 시스템이다.
+
+
+        입력 이미지 2장을 비교해라.
+
+
+        첫 번째 이미지는 원본 이미지이고, 두 번째 이미지는 보정 결과 이미지이다.
+
+
+        목표는 보정 결과가 쇼핑몰 상품컷으로 사용 가능한지 판단하는 것이다.
+
+
+        검수 기준:
+
+
+        1. 제품의 형태, 비율, 실루엣이 원본과 동일해야 한다.
+
+        2. 로고, 글자, 프린트, 자수, 패턴, 라벨, 버튼, 스티치, 포켓 라인, 장식이 원본과 다르게 변형되면 안 된다.
+
+        3. 색상은 원본과 유사해야 하며, 과도하게 밝아지거나 다른 색상으로 변하면 안 된다.
+
+        4. 의류의 경우 원본에 명확한 그림자가 없으면 새로운 바닥 그림자가 추가되면 안 된다.
+
+        5. 잡화, 신발, 가방, 지갑은 자연스러운 약한 바닥 그림자가 허용된다.
+
+        6. 주름은 자연스럽게 정돈되어야 하며, 원단 질감이 플라스틱처럼 사라지면 안 된다.
+
+        7. 배경은 깨끗한 화이트 톤이어야 한다.
+
+        8. 사람, 마네킹, 소품, 텍스트가 새로 추가되면 안 된다.
+
+
+        반드시 아래 JSON 형식으로만 답해라.
+
+
+        {
+
+        "pass": true,
+
+        "recommended_action": "approve | re_edit | manual_review",
+
+        "shape_changed": false,
+
+        "color_changed": false,
+
+        "logo_or_graphic_changed": false,
+
+        "stitch_or_detail_changed": false,
+
+        "unwanted_shadow_added": false,
+
+        "background_issue": false,
+
+        "over_smoothed_texture": false,
+
+        "new_object_added": false,
+
+        "risk_level": "low | medium | high",
+
+        "failure_reasons": [],
+
+        "short_comment": "검수 요약을 한국어로 짧게 작성"
+
+        }'
     model:
-      enhance: |
-        Enhance natural skin tones and clothing details on this fashion model photo.
-        Keep the model's pose, face, body shape exactly as is.
-      verify: |
-        Compare original and enhanced fashion photos.
+      enhance: 'Enhance natural skin tones and clothing details on this fashion model
+        photo.
+
+        Keep the model''s pose, face, body shape exactly as is.
+
+        '
+      verify: 'Compare original and enhanced fashion photos.
+
         Check if face, body, garment logos, or prints were altered.
+
         Respond ONLY in JSON: {"safe": true|false, "issues": ["short Korean strings"]}.
 
+        '
     full:
-      enhance: |
-        Enhance overall product photo for clarity and color accuracy.
-      verify: |
-        Compare original and enhanced full-shot images. Check for any visible alteration.
+      enhance: 'Enhance overall product photo for clarity and color accuracy.
+
+        '
+      verify: 'Compare original and enhanced full-shot images. Check for any visible
+        alteration.
+
         Respond ONLY in JSON: {"safe": true|false, "issues": ["short Korean strings"]}.
 
+        '
     detail:
-      enhance: |
-        Enhance fine detail, texture, and color of this close-up product shot.
+      enhance: 'Enhance fine detail, texture, and color of this close-up product shot.
+
         Keep all features intact.
-      verify: |
-        Compare original and enhanced detail shots.
+
+        '
+      verify: 'Compare original and enhanced detail shots.
+
         Check if textures, materials, or stitching were altered.
+
         Respond ONLY in JSON: {"safe": true|false, "issues": ["short Korean strings"]}.
 
+        '
     package:
-      enhance: |
-        Enhance package photo for clarity. Keep all printed text and logos sharp and unchanged.
-      verify: |
-        Compare original and enhanced package images.
-        Check carefully if any printed text, barcode, or logo was altered. Even minor blur counts.
+      enhance: 'Enhance package photo for clarity. Keep all printed text and logos
+        sharp and unchanged.
+
+        '
+      verify: 'Compare original and enhanced package images.
+
+        Check carefully if any printed text, barcode, or logo was altered. Even minor
+        blur counts.
+
         Respond ONLY in JSON: {"safe": true|false, "issues": ["short Korean strings"]}.
+
+        '

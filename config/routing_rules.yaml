@@ -27,6 +27,7 @@ rules:
 - conditions:
     background_type: colored
     image_type: mannequin
+    shooting_angle: top_down
   id: detail_colored_bg
   name: 디테일컷 (유색 배경)
   processing:
@@ -67,4 +68,15 @@ rules:
   processing:
     enhance: false
     nukki: false
+    shadow: false
+- conditions:
+    background_type: clean
+    image_type: clothing
+    is_label_cut: false
+    shooting_angle: front
+  id: rule_9
+  name: 의류
+  processing:
+    enhance: true
+    nukki: true
     shadow: false
