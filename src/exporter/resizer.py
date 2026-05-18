@@ -3,8 +3,8 @@
 편집 완료된 2250×2250 이미지를 4종 출력으로 변환:
   - output/original/{stem}_1.jpg     (2250 보존)
   - output/1500/{n}.jpg              (1500×1500)
-  - output/860/100_{n}.jpg           (860×860)
-  - output/crop/100_list.jpg         (1500×2250, 첫 이미지만)
+  - output/860/100_{n}.jpg           (860×860, 일반 사이즈)
+  - output/860/100_list.jpg          (1500×2250 크롭, 첫 이미지만)
 """
 from __future__ import annotations
 import io
@@ -251,7 +251,7 @@ class MultiSizeResizer:
 
         설정: v["use_photoroom"] = True/False (settings.yaml crop_vertical)
         """
-        sub = v.get("subfolder", "crop")
+        sub = v.get("subfolder", "860")
         fname = v.get("filename", "100_list.jpg")
         dest = self.output_dir / sub / fname
 
@@ -367,7 +367,7 @@ class MultiSizeResizer:
 
         if variants.get("crop") and v_cfg.get("crop_vertical", {}).get("enabled", True):
             v = v_cfg["crop_vertical"]
-            dest = self.output_dir / v.get("subfolder", "crop") / v.get("filename", "100_list.jpg")
+            dest = self.output_dir / v.get("subfolder", "860") / v.get("filename", "100_list.jpg")
             if dest.exists() and not overwrite:
                 logger.info(f"[Resizer] 스킵(덮어쓰기 OFF): {dest}")
             else:

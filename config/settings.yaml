@@ -257,7 +257,7 @@ resize:
       white_threshold: 235         # 로컬 폴백용 — 콘텐츠 감지 임계값
       content_min_ratio: 0.005     # 로컬 폴백용 — 행/열별 콘텐츠 비율 (JPEG 노이즈 무시)
       margin_ratio: 0.12           # 로컬 폴백용 — 콘텐츠 주변 12% 여유 패딩
-      subfolder: "crop"
+      subfolder: "860"            # 860 폴더에 함께 저장 (100_list.jpg)
       filename: "100_list.jpg"
       first_only: true             # 배치의 첫 이미지에서만 자동 생성
       # use_photoroom=true: Photoroom v2/edit (scaling=fit, referenceBox=subjectBox) — AI 정확 크롭
