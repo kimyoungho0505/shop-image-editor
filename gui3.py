@@ -2453,8 +2453,17 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         pair = self._viewfinder_pairs[vf_idx]
         out_files = result.get("files", [])
         pair["output_files"] = out_files
-        pair["success"] = bool(out_files)
-        pair["status"] = "done" if out_files else "fail"
+        # 바코드 제외는 의도된 스킵 → 실패가 아닌 별도 상태
+        is_barcode_skip = (
+            result.get("skipped") and
+            result.get("skip_reason") == "barcode_excluded"
+        )
+        if is_barcode_skip:
+            pair["success"] = True   # 처리는 의도대로 됨
+            pair["status"] = "barcode_skip"
+        else:
+            pair["success"] = bool(out_files)
+            pair["status"] = "done" if out_files else "fail"
 
         # 검증 결과 저장
         validation = result.get("validation")
@@ -2485,7 +2494,10 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         fname = Path(pair["input_path"]).name
         if fname in self._vf_file_stages:
             fs = self._vf_file_stages[fname]
-            fs["status"] = "done" if out_files else "fail"
+            if is_barcode_skip:
+                fs["status"] = "barcode_skip"
+            else:
+                fs["status"] = "done" if out_files else "fail"
             # 검증 단계 pip 업데이트
             if validation:
                 overall = validation.get("overall", True)
@@ -2676,7 +2688,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             top.pack(fill="x")
 
             status = pair.get("status", "pending")
-            icon_map = {"done": "\u2705", "processing": "\u23f3", "fail": "\u274c"}
+            icon_map = {
+                "done": "\u2705",       # \u2705
+                "processing": "\u23f3", # \u23f3
+                "fail": "\u274c",       # \u274c
+                "barcode_skip": "\u23ed",  # \u23ed \ubc14\ucf54\ub4dc \uac10\uc9c0 \uc2a4\ud0b5
+            }
             icon = icon_map.get(status, "\u2b1c")
             lbl_icon = tk.Label(top, text=icon, bg=VF_BG, font=(FONT_FAMILY, 10))
             lbl_icon.pack(side="left", padx=(0, 6))
@@ -2856,6 +2873,17 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     lbl_result.config(text="실패", fg=VF_RED)
                 for lbl in val_icons.values():
                     lbl.pack_forget()
+            elif status == "barcode_skip":
+                # 바코드 감지로 의도된 스킵 — 실패 아님
+                ri = self._vf_file_stages.get(fname, {}).get("routing_info")
+                bc = (ri or {}).get("barcode_number", "")
+                bc_text = f"⏭ 바코드 감지 ({bc})" if bc else "⏭ 바코드 감지"
+                row_info["lbl_stage_text"].config(text=bc_text, fg="#f59e0b")
+                row_info["lbl_stage_text"].pack(side="left")
+                if lbl_result:
+                    lbl_result.config(text="제외", fg="#f59e0b")
+                for lbl in val_icons.values():
+                    lbl.pack_forget()
             else:
                 row_info["lbl_stage_text"].config(text="")
                 if lbl_result:
@@ -2868,7 +2896,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             if validation and not validation.get("overall", True):
                 icon = "\u26a0\ufe0f"
             else:
-                icon = {"done": "\u2705", "processing": "\u23f3", "fail": "\u274c"}.get(status, "\u2b1c")
+                icon = {
+                    "done": "✅",
+                    "processing": "⏳",
+                    "fail": "❌",
+                    "barcode_skip": "⏭",
+                }.get(status, "⬜")
             row_info["lbl_icon"].config(text=icon)
 
             # 대기 파일 투명도 효과
