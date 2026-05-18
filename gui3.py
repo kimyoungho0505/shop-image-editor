@@ -140,7 +140,10 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
     # ──────────────────────────────────────────────────────────
 
     def _schedule_update_check(self):
-        """앱 시작 후 백그라운드에서 업데이트 체크."""
+        """앱 시작 후 백그라운드에서 업데이트 체크 (EXE 빌드에서만 동작)."""
+        # 소스 실행(python gui3.py)에서는 EXE 교체가 불가능하므로 체크 자체를 스킵
+        if not getattr(sys, "frozen", False):
+            return
         try:
             from src.updater import check_update_in_background
             check_update_in_background(
