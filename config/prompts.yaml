@@ -51,7 +51,7 @@ analysis:
     \ \"full\" 또는 \"package\"이고 needs_shadow가 true일 때만.\n    예: {{\"shadow.opacity\"\
     : 0.5, \"padding\": 0.05}}>,\n  \"confidence\": <0~1 실수>,\n  \"notes\": \"<이미지에\
     \ 대한 간단한 설명>\",
-  \"is_label_cut\": <boolean. 제품의 라벨·바코드·모델명 텍스트를 확대 촬영한 컷이면 true. 예: 가방/신발 내부 브랜드 태그, 비닐 포장의 바코드, 시리얼 번호 라벨. 이런 이미지는 배경제거와 보정이 불필요합니다. 일반 제품 사진이면 false>\n}}\n\n정확하게 분류하세요. image_type과 background 판정이 처리 파이프라인을 결정합니다.\n\
+  \"is_label_cut\": <boolean. 제품의 라벨·바코드·모델명 텍스트를 확대 촬영한 컷이면 true. 예: 가방/신발 내부 브랜드 태그, 비닐 포장의 바코드, 시리얼 번호 라벨. 이런 이미지는 배경제거와 보정이 불필요합니다. 일반 제품 사진이면 false>,\n  \"barcode_number\": <문자열 또는 null. 이미지에서 13자리 EAN-13 바코드 숫자가 명확히 보이면 그 숫자만 추출(예: \"9876543210123\"). 9로 시작하는 13자리 숫자가 인식되면 반드시 그대로 반환. 바코드가 없거나 숫자를 판독할 수 없으면 null>\n}}\n\n정확하게 분류하세요. image_type과 background 판정이 처리 파이프라인을 결정합니다.\n\
     \n그림자 판단 기준:\n- 의류가 마네킹/행거에 걸려있고 바닥이 안 보이는 경우 → needs_shadow: false\n- 모델 착용샷에서\
     \ 발(신발)이 보이는 경우 → needs_shadow: true (발 아래 접지 그림자)\n- 가방/신발/소품 등 바닥에 놓인 제품 → needs_shadow:\
     \ true\n- ★ 사람 손으로 상품을 들고 있는 경우 → needs_shadow: false (바닥에 놓인 것이 아님)\n- ★ 디테일컷(detail)\

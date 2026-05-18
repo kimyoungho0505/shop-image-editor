@@ -4840,6 +4840,7 @@ class ImageEditPipeline:
 
             # 1. Vision 분류 (image_type + background)
             _log("  [Vision] 이미지 분류 중...")
+            barcode_number = ""
             try:
                 instruction = self.analyze_only(image_path, category="", on_log=_log)
                 image_type = instruction.image_type   # full / detail / package / worn
@@ -4848,6 +4849,7 @@ class ImageEditPipeline:
                 is_label_cut = instruction.is_label_cut  # 바코드/모델명 태그 확대컷
                 has_mannequin = instruction.has_mannequin  # 마네킹 여부
                 detected_category = instruction.detected_category.lower()  # jewelry, bag, ...
+                barcode_number = instruction.barcode_number  # EAN-13 바코드 (감지 시)
             except Exception as ve:
                 import traceback as _tb
                 _log(f"  Vision 분류 실패 → full/clean 으로 가정: {ve}", "warn")
@@ -4855,6 +4857,24 @@ class ImageEditPipeline:
                 image_type, background, shooting_angle, is_label_cut = "full", "clean", "front", False
                 has_mannequin = False
                 detected_category = ""
+
+            # ── 바코드 스킵 규칙: 9로 시작하는 13자리 EAN-13 감지 시 전체 처리 제외 ──
+            if barcode_number and barcode_number.startswith("9") and len(barcode_number) == 13:
+                _log(f"  ⏭ 바코드 감지(9 시작 EAN-13: {barcode_number}) → 모든 처리 제외", "warn")
+                return {
+                    "success": True,
+                    "skipped": True,
+                    "skip_reason": "barcode_excluded",
+                    "barcode_number": barcode_number,
+                    "files": [],
+                    "path": image_path,
+                    "image_type": image_type,
+                    "background": background,
+                    "shooting_angle": shooting_angle,
+                    "is_label_cut": is_label_cut,
+                    "final_bytes": None,
+                    "original_stem": Path(image_path).stem,
+                }
 
             is_detail = image_type == "detail"
             is_clean_bg = background in ("clean", "white", "")

@@ -1638,6 +1638,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         # 뷰파인더 초기화 후 즉시 활성화 + 자동 오픈
         self._viewfinder_pairs = []
         self._vf_file_stages = {}
+        self._barcode_excluded_files = []   # 바코드 제외 목록 (배치 단위 누적)
         self.btn_unified_vf.config(state="normal")
 
         # 뷰파인더에 모든 파일을 입력 순서대로 사전 등록 (워커 시작 전)
@@ -1813,7 +1814,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 bg = result.get("background", "")
                 shooting_angle = result.get("shooting_angle", "")
                 is_label_cut = result.get("is_label_cut", False)
-                if is_label_cut:
+                barcode_excluded = result.get("skipped") and \
+                    result.get("skip_reason") == "barcode_excluded"
+                if barcode_excluded:
+                    route = "barcode_skip"
+                elif is_label_cut:
                     route = "label_skip"
                 elif shooting_angle == "top_down":
                     route = "top_down_only"
@@ -1829,20 +1834,42 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     "claid_only":     [],
                     "top_down_only":  [],
                     "label_skip":     [],
+                    "barcode_skip":   [],
                 }
                 performed = _performed_map.get(route, [])
                 routing_info = {
                     "route": route, "image_type": img_type, "background": bg,
                     "shooting_angle": shooting_angle, "performed": performed,
+                    "barcode_number": result.get("barcode_number", ""),
                 }
                 if 0 <= vf_idx < len(self._viewfinder_pairs):
                     self._viewfinder_pairs[vf_idx]["routing_info"] = routing_info
+                    if barcode_excluded:
+                        self._viewfinder_pairs[vf_idx]["barcode_excluded"] = True
+                        self._viewfinder_pairs[vf_idx]["barcode_number"] = \
+                            result.get("barcode_number", "")
                 if fname in self._vf_file_stages:
                     self._vf_file_stages[fname]["routing_info"] = routing_info
+                # 바코드 제외 목록 누적
+                if barcode_excluded:
+                    self._barcode_excluded_files = getattr(
+                        self, "_barcode_excluded_files", [])
+                    self._barcode_excluded_files.append({
+                        "fname": fname,
+                        "path": img_path,
+                        "barcode": result.get("barcode_number", ""),
+                    })
                 completed[0] += 1
                 self._set_unified_progress(completed[0], total)
             if result.get("success"):
-                self._log_unified(f"[{fname}] ✓ 완료 ({completed[0]}/{total})", "success")
+                if barcode_excluded:
+                    bc = result.get("barcode_number", "")
+                    self._log_unified(
+                        f"[{fname}] ⏭ 바코드 제외 ({bc}) — 모든 처리 스킵 "
+                        f"({completed[0]}/{total})", "warning")
+                else:
+                    self._log_unified(
+                        f"[{fname}] ✓ 완료 ({completed[0]}/{total})", "success")
             else:
                 self._log_unified(f"[{fname}] ✗ 실패: {result.get('error','')} ({completed[0]}/{total})", "error")
             # Treeview "완료" 컬럼 실시간 업데이트 (메인 스레드에서)
@@ -2597,6 +2624,16 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                               bg=VF_BG, fg=VF_TEXT_DIM, font=(FONT_FAMILY, 10, "bold"),
                               anchor="w")
         lbl_header.pack(side="left")
+        # 바코드 제외 목록 보기 버튼 (제외 파일이 있을 때만 활성)
+        btn_barcode_list = tk.Button(
+            header_frame, text="⏭ 바코드 제외",
+            command=self._vf_show_barcode_excluded,
+            font=(FONT_FAMILY, 8), bg=VF_CARD, fg="#f59e0b",
+            activebackground=VF_CARD, activeforeground="#fbbf24",
+            bd=0, padx=8, cursor="hand2",
+        )
+        btn_barcode_list.pack(side="right")
+        self._vf_btn_barcode_list = btn_barcode_list
 
         # 파일 리스트 영역
         list_frame = tk.Frame(left, bg=VF_BG)
@@ -2756,6 +2793,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 "claid_only":     "배경없는 디테일",
                 "top_down_only":  "수직촬영",
                 "label_skip":     "라벨/바코드",
+                "barcode_skip":   "⏭ 바코드 제외",
             }
             _route_color = {
                 "full_shadow":    "#3b82f6",
@@ -2763,6 +2801,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 "claid_only":     "#16a34a",
                 "top_down_only":  "#7c3aed",
                 "label_skip":     "#6b7280",
+                "barcode_skip":   "#f59e0b",
             }
 
             def _route_label(ri):
@@ -4121,6 +4160,112 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 pass
             lbl.pack(side="left", padx=2)
             slot["dynamic_widgets"].append(lbl)
+
+    def _vf_show_barcode_excluded(self):
+        """뷰파인더에서 바코드로 제외된 파일 목록 다이얼로그."""
+        excluded = getattr(self, "_barcode_excluded_files", []) or []
+        if not excluded:
+            messagebox.showinfo(
+                "바코드 제외 목록",
+                "이번 배치에서 바코드로 제외된 파일이 없습니다.",
+                parent=getattr(self, "_vf_dlg", self))
+            return
+
+        dlg = tk.Toplevel(getattr(self, "_vf_dlg", self))
+        dlg.title(f"⏭ 바코드 제외 목록 ({len(excluded)}건)")
+        dlg.configure(bg="#1e1e2e")
+        dlg.resizable(True, True)
+
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        dw = min(720, int(sw * 0.6))
+        dh = min(560, int(sh * 0.7))
+        dlg.geometry(f"{dw}x{dh}+{(sw-dw)//2}+{(sh-dh)//2}")
+
+        # 헤더
+        tk.Label(
+            dlg, text=f"⏭  바코드 제외 — 총 {len(excluded)}건",
+            bg="#1e1e2e", fg="#f9e2af",
+            font=("맑은 고딕", 12, "bold"),
+        ).pack(pady=(14, 4))
+        tk.Label(
+            dlg,
+            text="9로 시작하는 13자리 EAN-13 바코드가 감지되어\n"
+                 "보정/리사이즈/크롭 모두 제외된 파일들입니다.",
+            bg="#1e1e2e", fg="#a6adc8",
+            font=("맑은 고딕", 9), justify="center",
+        ).pack(pady=(0, 10))
+
+        # 리스트 영역 (스크롤 가능)
+        outer = tk.Frame(dlg, bg="#1e1e2e")
+        outer.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+
+        canvas = tk.Canvas(outer, bg="#11111b", highlightthickness=0, bd=0)
+        sb = tk.Scrollbar(outer, orient="vertical", command=canvas.yview,
+                          bg="#1e1e2e", troughcolor="#1e1e2e",
+                          activebackground="#313244")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+
+        inner = tk.Frame(canvas, bg="#11111b")
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_resize(_e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        inner.bind("<Configure>", _on_inner_resize)
+
+        # 행 렌더
+        for i, item in enumerate(excluded, 1):
+            row = tk.Frame(inner, bg="#11111b")
+            row.pack(fill="x", padx=8, pady=4)
+            # 번호 + 파일명
+            tk.Label(
+                row, text=f"{i:>3}.",
+                bg="#11111b", fg="#7f849c",
+                font=("Consolas", 9),
+            ).pack(side="left", padx=(0, 6))
+            tk.Label(
+                row, text=item.get("fname", "?"),
+                bg="#11111b", fg="#cdd6f4",
+                font=("맑은 고딕", 9),
+                anchor="w",
+            ).pack(side="left")
+            # 바코드 번호
+            bc = item.get("barcode", "")
+            if bc:
+                tk.Label(
+                    row, text=f"  {bc}",
+                    bg="#11111b", fg="#f9e2af",
+                    font=("Consolas", 9, "bold"),
+                ).pack(side="left", padx=(8, 0))
+            # 폴더 열기 버튼
+            tk.Button(
+                row, text="📁 위치",
+                command=lambda p=item.get("path", ""): self._open_file_location(p),
+                font=("맑은 고딕", 8),
+                bg="#313244", fg="#cdd6f4",
+                activebackground="#45475a", activeforeground="#cdd6f4",
+                bd=0, padx=6, cursor="hand2",
+            ).pack(side="right")
+
+        # 닫기 버튼
+        tk.Button(
+            dlg, text="닫기", command=dlg.destroy,
+            font=("맑은 고딕", 10), padx=18, pady=4,
+        ).pack(pady=(0, 14))
+
+    def _open_file_location(self, file_path: str):
+        """파일 위치를 탐색기에서 열기 (선택 상태로)."""
+        try:
+            import subprocess as _sp
+            p = Path(file_path)
+            if p.exists():
+                _sp.Popen(["explorer", "/select,", str(p)])
+            elif p.parent.exists():
+                _sp.Popen(["explorer", str(p.parent)])
+        except Exception:
+            pass
 
     def _vf_show_org_verify_dialog(self):
         """OpenAI 조직 검증 필요 안내 다이얼로그 (클릭 가능한 링크 포함)."""

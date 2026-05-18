@@ -35,6 +35,7 @@ class EditInstruction:
     confidence: float = 0.0
     notes: str = ""
     is_label_cut: bool = False  # 바코드/모델명/태그 확대 컷 → 누끼·보정 불필요
+    barcode_number: str = ""  # 13자리 EAN-13 바코드 번호 (감지된 경우만)
 
     def summary(self) -> str:
         parts = [f"유형: {self.image_type}", f"배경: {self.background}"]
@@ -136,6 +137,20 @@ class ResultParser:
         logger.error(f"JSON을 추출할 수 없습니다: {text[:200]}...")
         return None
 
+    def _parse_barcode_number(self, raw) -> str:
+        """barcode_number 필드 파싱 — 13자리 숫자만 인정.
+
+        Returns: 13자리 숫자 문자열 또는 빈 문자열.
+        """
+        if raw is None:
+            return ""
+        s = str(raw).strip()
+        # 숫자 외 문자 제거 (예: "9-876543210123" 같은 경우)
+        digits = "".join(ch for ch in s if ch.isdigit())
+        if len(digits) == 13:
+            return digits
+        return ""
+
     def _parse_focus_area(self, raw) -> Optional[dict]:
         """detail_focus_area 필드를 파싱하여 정규화된 좌표 dict를 반환한다."""
         if not isinstance(raw, dict):
@@ -181,6 +196,7 @@ class ResultParser:
             confidence=float(data.get("confidence", 0)),
             notes=str(data.get("notes", "")),
             is_label_cut=bool(data.get("is_label_cut", False)),
+            barcode_number=self._parse_barcode_number(data.get("barcode_number")),
         )
 
         logger.info(f"분류 결과 파싱 완료: {instruction.summary()}")
