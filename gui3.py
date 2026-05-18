@@ -307,11 +307,28 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         bottom_bar = tk.Frame(self, bg=BG_COLOR)
         bottom_bar.pack(fill="x", padx=10, pady=(5, 10))
+        # 재시작 버튼 (눈에 잘 띄도록 주황색 강조)
+        btn_restart = tk.Button(
+            bottom_bar, text="🔄 프로그램 재시작",
+            command=self._restart_app,
+            font=(FONT_FAMILY, 10, "bold"),
+            bg="#f97316", fg="white",
+            activebackground="#ea580c", activeforeground="white",
+            bd=0, padx=18, pady=6, cursor="hand2",
+            relief="flat",
+        )
+        btn_restart.pack(side="right", padx=(6, 0))
+        # 호버 효과
+        def _on_restart_hover(e, btn=btn_restart):
+            btn.configure(bg="#fb923c")
+        def _on_restart_leave(e, btn=btn_restart):
+            btn.configure(bg="#f97316")
+        btn_restart.bind("<Enter>", _on_restart_hover)
+        btn_restart.bind("<Leave>", _on_restart_leave)
+
         self.status_bar = ttk.Label(bottom_bar, text="준비 완료", relief="sunken", anchor="w",
                                     font=(FONT_FAMILY, 9))
-        self.status_bar.pack(side="left", fill="x", expand=True)
-        ttk.Button(bottom_bar, text="🔄 재시작", width=8,
-                   command=self._restart_app).pack(side="right", padx=(6, 0))
+        self.status_bar.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
     # ── 리사이징 탭 ──
     def _build_resize_tab(self):
