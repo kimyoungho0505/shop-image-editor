@@ -142,11 +142,36 @@ def download_update(
 # 업데이트 적용 (Windows: batch 교체 방식)
 # ──────────────────────────────────────────────
 
-def apply_update(new_exe_path: str) -> None:
+def _compute_new_exe_path(current_exe: str, new_version: str) -> str:
+    """현재 EXE 경로 + 새 버전으로 새 파일명 계산.
+
+    - 'LUXBOY_ShopEditor_v1.0.6.exe' + '1.0.12' → 'LUXBOY_ShopEditor_v1.0.12.exe'
+    - 'LUXBOY_ShopEditor.exe' (버전 없음) + '1.0.12' → 그대로 유지
+    - '내가지은이름.exe' (사용자 변경) + '1.0.12' → 그대로 유지 (안전)
+    """
+    import re
+    if not new_version:
+        return current_exe
+    ver = new_version.lstrip("v")
+    cur_path = Path(current_exe)
+    cur_name = cur_path.name
+    # 버전 패턴이 들어간 표준 파일명만 변경 (그 외는 그대로)
+    m = re.match(r"^(LUXBOY_ShopEditor)_v[\d.]+\.exe$", cur_name, re.IGNORECASE)
+    if not m:
+        return current_exe
+    new_name = f"{m.group(1)}_v{ver}.exe"
+    return str(cur_path.parent / new_name)
+
+
+def apply_update(new_exe_path: str, new_version: str = "") -> None:
     """
     현재 실행 중인 EXE를 새 EXE로 교체하고 재시작.
 
     Windows에서 실행 중인 EXE는 직접 교체 불가 → 배치스크립트가 대신 교체.
+
+    Args:
+        new_exe_path: 다운로드된 새 EXE 파일 경로
+        new_version: 새 버전 번호 (예: '1.0.12') — 표준 파일명일 경우 자동 갱신
     """
     if not getattr(sys, "frozen", False):
         # 개발 모드 (python gui3.py) → 그냥 안내만
@@ -154,6 +179,8 @@ def apply_update(new_exe_path: str) -> None:
         return
 
     current_exe = sys.executable
+    target_exe = _compute_new_exe_path(current_exe, new_version)
+    rename_needed = (target_exe != current_exe)
     bat_path = os.path.join(tempfile.gettempdir(), "luxboy_update_apply.bat")
 
     # 배치: EXE 종료 대기 → 새 EXE로 교체 → 재시작
@@ -161,24 +188,34 @@ def apply_update(new_exe_path: str) -> None:
     # 새 EXE가 막 만들기 시작한 _MEI<NNN> 폴더와 충돌해 python312.dll 로드 실패
     # ("Failed to load Python DLL") 발생. 오래된 _MEI 폴더는 Windows가 자체적으로
     # 정리하거나 사용자가 수동 청소.
+    delete_old_block = ""
+    if rename_needed:
+        delete_old_block = f'''
+:: 파일명 변경됨 — 기존 EXE 삭제
+del /q "{current_exe}" 2>nul'''
+
     bat = f"""@echo off
 chcp 65001 > nul
 timeout /t 3 /nobreak > nul
 echo 업데이트 적용 중...
-copy /y "{new_exe_path}" "{current_exe}"
+copy /y "{new_exe_path}" "{target_exe}"
 if errorlevel 1 (
     echo 업데이트 실패 — 수동으로 교체하세요.
     pause
     goto :eof
-)
+){delete_old_block}
 del "{new_exe_path}" 2>nul
 echo 업데이트 완료. 재시작합니다.
-start "" "{current_exe}"
+start "" "{target_exe}"
 del "%~f0" 2>nul
 """
     with open(bat_path, "w", encoding="utf-8") as f:
         f.write(bat)
 
+    if rename_needed:
+        logger.info(
+            f"[Updater] 파일명 변경: {Path(current_exe).name} "
+            f"→ {Path(target_exe).name}")
     logger.info(f"[Updater] 업데이트 배치 실행: {bat_path}")
     subprocess.Popen(["cmd", "/c", bat_path], creationflags=subprocess.CREATE_NO_WINDOW)
     # sys.exit 대신 os._exit로 더 깔끔히 종료 (PyInstaller 정리 단계 스킵 → 경고 회피)

@@ -295,7 +295,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 "다운로드 완료! 앱을 종료하고 업데이트를 적용합니다.\n잠시만 기다려주세요.",
                 parent=self
             )
-            apply_update(new_exe)
+            # 새 버전 전달 → 표준 파일명 패턴이면 자동 rename
+            apply_update(new_exe, new_version=info.version)
 
         import threading as _th
         _th.Thread(target=_download, daemon=True).start()
