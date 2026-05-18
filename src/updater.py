@@ -156,11 +156,14 @@ def apply_update(new_exe_path: str) -> None:
     current_exe = sys.executable
     bat_path = os.path.join(tempfile.gettempdir(), "luxboy_update_apply.bat")
 
-    # 배치: EXE가 완전 종료되기를 기다린 후 교체 + PyInstaller _MEI 임시폴더도 함께 정리.
-    # 더 긴 대기(5초)로 파일 핸들이 풀릴 시간 확보 → "Failed to remove temporary directory" 경고 회피.
+    # 배치: EXE 종료 대기 → 새 EXE로 교체 → 재시작
+    # ⚠️ 주의: _MEI 임시 폴더 자동 정리 코드는 절대 추가하지 말 것!
+    # 새 EXE가 막 만들기 시작한 _MEI<NNN> 폴더와 충돌해 python312.dll 로드 실패
+    # ("Failed to load Python DLL") 발생. 오래된 _MEI 폴더는 Windows가 자체적으로
+    # 정리하거나 사용자가 수동 청소.
     bat = f"""@echo off
 chcp 65001 > nul
-timeout /t 5 /nobreak > nul
+timeout /t 3 /nobreak > nul
 echo 업데이트 적용 중...
 copy /y "{new_exe_path}" "{current_exe}"
 if errorlevel 1 (
@@ -168,12 +171,10 @@ if errorlevel 1 (
     pause
     goto :eof
 )
-del "{new_exe_path}"
-:: PyInstaller _MEI 잔여 폴더 정리 (있으면)
-for /d %%D in ("%TEMP%\\_MEI*") do rd /s /q "%%D" 2>nul
+del "{new_exe_path}" 2>nul
 echo 업데이트 완료. 재시작합니다.
 start "" "{current_exe}"
-del "%~f0"
+del "%~f0" 2>nul
 """
     with open(bat_path, "w", encoding="utf-8") as f:
         f.write(bat)
