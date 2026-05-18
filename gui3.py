@@ -329,8 +329,25 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             pass
 
     def _on_close(self):
+        """프로그램 종료 — _MEI 폴더 정리가 깔끔히 되도록 핸들 정리 후 종료."""
         self._save_state()
         self.destroy()
+
+        # ─ EXE 모드에서 부트로더 정리를 도움 ─
+        # PyInstaller 부트로더는 종료 시 _MEI 임시 폴더를 지우는데, Windows가
+        # 일부 DLL 핸들을 즉시 풀지 않아 'Failed to remove temporary directory'
+        # 경고가 뜸. 종료 직전 GC + 짧은 대기로 핸들 풀릴 시간 확보.
+        if getattr(sys, "frozen", False):
+            try:
+                import gc as _gc
+                import time as _time
+                _gc.collect()
+                _time.sleep(0.3)
+            except Exception:
+                pass
+            # os._exit는 atexit를 건너뛰지만 부트로더 정리는 막지 않음.
+            # 그래도 Python 인터프리터를 깔끔히 종료시켜 일부 케이스에서 도움.
+            os._exit(0)
 
     # 안 UI 빌드 ――
     def _build_ui(self):
