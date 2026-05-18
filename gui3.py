@@ -17,6 +17,17 @@ from datetime import datetime
 APP_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(APP_DIR))
 
+# 사용자 데이터 디렉토리 (.env, 사용자 설정 파일이 저장되는 곳)
+# - 소스 실행: 프로젝트 루트 (APP_DIR)
+# - EXE 실행: EXE가 위치한 폴더 (sys.executable의 부모)
+# PyInstaller onefile EXE는 _MEIPASS에 압축 해제되므로 __file__/APP_DIR을
+# 그대로 쓰면 EXE 옆이 아니라 임시 폴더를 가리키게 됨 — 사용자가 만든 .env를
+# 찾지 못하고, GUI에서 키를 저장해도 임시 폴더에 써서 재실행 시 사라짐.
+if getattr(sys, "frozen", False):
+    USER_DIR = Path(sys.executable).parent.resolve()
+else:
+    USER_DIR = APP_DIR
+
 
 def _detect_cuda_version():
     """nvidia-smi에서 CUDA 버전을 감지하여 (available, version_str, whl_tag) 반환."""
@@ -50,7 +61,16 @@ def _detect_cuda_version():
 
 
 from dotenv import load_dotenv, set_key
-load_dotenv(str(APP_DIR / ".env"))
+
+# .env 로드 순서 (우선순위):
+#   1. USER_DIR (EXE 옆 / 소스 루트) — 사용자가 직접 만들거나 GUI에서 저장한 .env
+#   2. APP_DIR (소스 루트) — 개발 환경 fallback
+# 두 경로가 같으면 한 번만 호출됨.
+_USER_ENV = USER_DIR / ".env"
+_APP_ENV = APP_DIR / ".env"
+load_dotenv(str(_USER_ENV))
+if _APP_ENV != _USER_ENV:
+    load_dotenv(str(_APP_ENV), override=False)  # 이미 USER에서 읽은 값이 우선
 
 import yaml
 
@@ -60,7 +80,7 @@ SETTINGS_PATH = CONFIG_DIR / "settings.yaml"
 IMAGE2_PROMPTS_PATH = CONFIG_DIR / "image2_prompts.yaml"
 CATEGORIES_PATH = CONFIG_DIR / "categories.yaml"
 SHADOW_HINTS_PATH = CONFIG_DIR / "shadow_hints.yaml"
-ENV_PATH = APP_DIR / ".env"
+ENV_PATH = USER_DIR / ".env"   # 저장은 항상 사용자 폴더 (EXE 옆 또는 소스 루트)
 GUI_STATE_PATH = APP_DIR / "gui_state.json"
 
 WINDOW_TITLE = "LUXBOY 이미지 자동 편집 도구"
