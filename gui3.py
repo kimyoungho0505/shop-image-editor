@@ -62,26 +62,78 @@ def _detect_cuda_version():
 
 from dotenv import load_dotenv, set_key
 
-# .env 로드 순서 (우선순위):
-#   1. USER_DIR (EXE 옆 / 소스 루트) — 사용자가 직접 만들거나 GUI에서 저장한 .env
-#   2. APP_DIR (소스 루트) — 개발 환경 fallback
-# 두 경로가 같으면 한 번만 호출됨.
+# .env 로드 순서: USER_DIR 우선 → APP_DIR fallback
 _USER_ENV = USER_DIR / ".env"
 _APP_ENV = APP_DIR / ".env"
 load_dotenv(str(_USER_ENV))
 if _APP_ENV != _USER_ENV:
-    load_dotenv(str(_APP_ENV), override=False)  # 이미 USER에서 읽은 값이 우선
+    load_dotenv(str(_APP_ENV), override=False)
 
 import yaml
 
-CONFIG_DIR = APP_DIR / "config"
+# 번들된 원본 config (EXE 모드에서는 _MEIPASS 임시 폴더의 읽기 전용)
+APP_CONFIG_DIR = APP_DIR / "config"
+
+# 사용자 편집 가능 config — 실제 모든 읽기/쓰기가 일어나는 곳
+# EXE 모드: EXE 옆 'config/' 폴더 (영구 저장)
+# 소스 모드: APP_CONFIG_DIR과 동일
+if USER_DIR == APP_DIR:
+    USER_CONFIG_DIR = APP_CONFIG_DIR
+else:
+    USER_CONFIG_DIR = USER_DIR / "config"
+
+
+def _bootstrap_user_config():
+    """EXE 첫 실행/업데이트 시 번들된 config 파일을 사용자 폴더로 복사.
+
+    - 시스템 파일 (prompts.yaml): 매 실행 시 번들 버전으로 덮어쓰기
+      (업데이트로 개선된 프롬프트가 자동 반영되도록)
+    - 사용자 편집 파일 (settings/routing/image2/categories/shadow_hints):
+      없을 때만 복사 (사용자 편집 영구 보존)
+    """
+    if USER_CONFIG_DIR == APP_CONFIG_DIR:
+        return   # 소스 모드 — 복사 불필요
+
+    # 시스템 파일 — 매 실행 시 번들과 동기화
+    SYSTEM_FILES = {"prompts.yaml"}
+
+    try:
+        USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        import shutil as _sh
+        if not APP_CONFIG_DIR.is_dir():
+            return
+        for src in APP_CONFIG_DIR.iterdir():
+            if not src.is_file():
+                continue
+            dst = USER_CONFIG_DIR / src.name
+            try:
+                if src.name in SYSTEM_FILES:
+                    # 항상 번들 버전으로 덮어쓰기 (업데이트 반영)
+                    _sh.copy2(src, dst)
+                else:
+                    # 사용자 편집 가능 파일 — 없을 때만 복사
+                    if not dst.exists():
+                        _sh.copy2(src, dst)
+                        print(f"[Config] 사용자 config 부트스트랩: {dst.name}")
+            except Exception as e:
+                print(f"[Config] {src.name} 처리 실패: {e}")
+    except Exception as e:
+        print(f"[Config] 부트스트랩 실패: {e}")
+
+
+_bootstrap_user_config()
+
+# 외부에서 사용할 경로 상수 — 사용자 폴더 기준
+# (모든 GUI 저장/로드 및 파이프라인 config_dir로 전달됨)
+CONFIG_DIR = USER_CONFIG_DIR
 PROMPTS_PATH = CONFIG_DIR / "prompts.yaml"
 SETTINGS_PATH = CONFIG_DIR / "settings.yaml"
 IMAGE2_PROMPTS_PATH = CONFIG_DIR / "image2_prompts.yaml"
 CATEGORIES_PATH = CONFIG_DIR / "categories.yaml"
 SHADOW_HINTS_PATH = CONFIG_DIR / "shadow_hints.yaml"
 ENV_PATH = USER_DIR / ".env"   # 저장은 항상 사용자 폴더 (EXE 옆 또는 소스 루트)
-GUI_STATE_PATH = APP_DIR / "gui_state.json"
+ROUTING_RULES_PATH = CONFIG_DIR / "routing_rules.yaml"   # 라우팅 규칙 저장 경로
+GUI_STATE_PATH = USER_DIR / "gui_state.json"   # 입력 폴더 기록 등 사용자 상태
 
 WINDOW_TITLE = "LUXBOY 이미지 자동 편집 도구"
 WINDOW_SIZE = "1100x850"
@@ -689,10 +741,9 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
     def _load_routing_rules(self):
         """config/routing_rules.yaml 로드. 없으면 기본값 반환."""
         import yaml as _yaml
-        rules_path = CONFIG_DIR / "routing_rules.yaml"
-        if rules_path.exists():
+        if ROUTING_RULES_PATH.exists():
             try:
-                with open(rules_path, encoding="utf-8") as f:
+                with open(ROUTING_RULES_PATH, encoding="utf-8") as f:
                     data = _yaml.safe_load(f)
                     return data.get("rules", self._default_routing_rules())
             except Exception:
@@ -723,9 +774,9 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         import yaml as _yaml
         rules = self._collect_routing_rules_from_ui()
         self._routing_rules_data = rules
-        rules_path = CONFIG_DIR / "routing_rules.yaml"
         try:
-            with open(rules_path, "w", encoding="utf-8") as f:
+            ROUTING_RULES_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(ROUTING_RULES_PATH, "w", encoding="utf-8") as f:
                 _yaml.dump({"rules": rules}, f, allow_unicode=True, default_flow_style=False)
             self.cond_status.config(text="✓ 저장됨", foreground="#16a34a")
             self.after(2000, lambda: self.cond_status.config(text=""))
