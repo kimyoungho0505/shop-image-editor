@@ -186,7 +186,13 @@ def save_yaml(path, data):
 class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("LUXBOY 메인 - gui3")
+        # 버전 정보 — 타이틀바에 표시
+        try:
+            from version import __version__ as _APP_VER
+        except ImportError:
+            _APP_VER = "dev"
+        self._app_version = _APP_VER
+        self.title(f"LUXBOY Shop Image Editor — v{_APP_VER}")
         self.geometry("1100x850")
         self.configure(bg=BG_COLOR)
         self.minsize(900, 700)
@@ -397,6 +403,14 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             btn.configure(bg="#f97316")
         btn_restart.bind("<Enter>", _on_restart_hover)
         btn_restart.bind("<Leave>", _on_restart_leave)
+
+        # 버전 라벨 (재시작 버튼 왼쪽)
+        tk.Label(
+            bottom_bar,
+            text=f"v{self._app_version}",
+            bg=BG_COLOR, fg="#6b7280",
+            font=(FONT_FAMILY, 9, "bold"),
+        ).pack(side="right", padx=(0, 10))
 
         self.status_bar = ttk.Label(bottom_bar, text="준비 완료", relief="sunken", anchor="w",
                                     font=(FONT_FAMILY, 9))
