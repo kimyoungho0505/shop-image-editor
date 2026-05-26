@@ -302,10 +302,32 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         _th.Thread(target=_download, daemon=True).start()
 
     def _restart_app(self):
+        """프로그램 재시작 — EXE/소스 모드 자동 분기."""
         self._save_state()
         self.destroy()
         import subprocess as _sp
-        _sp.Popen([sys.executable, __file__])
+        if getattr(sys, "frozen", False):
+            # EXE 모드: __file__은 _MEIPASS 안의 gui3.py를 가리키므로 인자로 넘기면 안 됨!
+            # 단순히 EXE 자체만 재실행 (DETACHED_PROCESS로 부모와 분리)
+            _sp.Popen(
+                [sys.executable],
+                creationflags=getattr(_sp, "DETACHED_PROCESS", 0) |
+                              getattr(_sp, "CREATE_NEW_PROCESS_GROUP", 0),
+                close_fds=True,
+            )
+        else:
+            # 소스 모드: python interpreter + 스크립트
+            _sp.Popen([sys.executable, __file__])
+
+        # 깔끔히 종료 (부트로더 핸들 충돌 회피)
+        if getattr(sys, "frozen", False):
+            try:
+                import gc as _gc, time as _time
+                _gc.collect()
+                _time.sleep(0.3)
+            except Exception:
+                pass
+            os._exit(0)
 
     def _load_state(self):
         self._state = {}
