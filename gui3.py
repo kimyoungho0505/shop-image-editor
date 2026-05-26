@@ -1620,7 +1620,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         btn_row.pack(fill="x", pady=(6, 0))
         ttk.Button(btn_row, text="+ 추가",
                    command=self._browse_unified_input).pack(side="left", padx=(0, 3))
+        # ⚠️ 기본 '삭제'는 목록에서만 제거 — 디스크 파일은 절대 건드리지 않음
         ttk.Button(btn_row, text="삭제",
+                   command=_remove_checked_from_list).pack(side="left", padx=(0, 3))
+        # 디스크 삭제는 별도 위험 버튼으로 분리 (이름에 표시)
+        ttk.Button(btn_row, text="🗑 디스크 삭제",
                    command=_delete_checked_from_disk).pack(side="left", padx=(0, 3))
         ttk.Button(btn_row, text="전체삭제",
                    command=lambda: self.tv_folders.delete(*self.tv_folders.get_children())
@@ -2528,15 +2532,40 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         os.startfile(folders[0])
 
     def _open_unified_output_folder(self):
-        folders = [self.tv_folders.set(i, "path") for i in self.tv_folders.get_children()]
-        if not folders:
+        """출력 폴더 열기 — 우선순위: 체크된 폴더 → 선택된 행 → 첫 폴더."""
+        children = list(self.tv_folders.get_children())
+        if not children:
             messagebox.showwarning("알림", "입력 폴더를 먼저 선택하세요.")
             return
-        output = Path(folders[0]) / "OUTPUT"
-        if output.is_dir():
-            os.startfile(str(output))
-        else:
-            messagebox.showwarning("알림", f"출력 폴더가 아직 없습니다:\n{output}")
+        # 1) 체크된 폴더가 있으면 그것들 모두 열기
+        checked = [i for i in children
+                   if self.tv_folders.set(i, "sel") == "☑"]
+        targets = checked
+        # 2) 체크 없으면 선택된 행
+        if not targets:
+            sel = list(self.tv_folders.selection())
+            if sel:
+                targets = sel
+        # 3) 그것도 없으면 첫 폴더
+        if not targets:
+            targets = [children[0]]
+
+        opened = 0
+        not_found = []
+        for iid in targets:
+            folder = self.tv_folders.set(iid, "path")
+            output = Path(folder) / "OUTPUT"
+            if output.is_dir():
+                try:
+                    os.startfile(str(output))
+                    opened += 1
+                except Exception:
+                    not_found.append(folder)
+            else:
+                not_found.append(folder)
+        if opened == 0:
+            messagebox.showwarning(
+                "알림", f"출력 폴더가 아직 없습니다:\n" + "\n".join(not_found[:5]))
 
     def _vf_make_log(self, fname, base_log=None):
         """stage 추적하는 로그 래퍼 생성"""
@@ -2793,8 +2822,17 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         list_frame = tk.Frame(left, bg=VF_BG)
         list_frame.pack(fill="both", expand=True, padx=4)
         list_canvas = tk.Canvas(list_frame, bg=VF_BG, highlightthickness=0, bd=0)
-        list_sb = tk.Scrollbar(list_frame, orient="vertical", command=list_canvas.yview,
-                               bg=VF_BG, troughcolor=VF_BG, activebackground=VF_CARD)
+        # 스크롤바를 잘 보이도록 강조: 더 밝은 색 + 굵게
+        list_sb = tk.Scrollbar(
+            list_frame, orient="vertical", command=list_canvas.yview,
+            bg="#45475a",          # 슬라이더 색 (밝은 회색)
+            troughcolor="#1e1e2e",  # 트로프 (어두운 배경)
+            activebackground="#89b4fa",  # 드래그 시 강조 (밝은 파랑)
+            width=14,               # 굵게 (기본 ~10)
+            elementborderwidth=1,
+            borderwidth=0,
+            highlightthickness=0,
+        )
         list_canvas.configure(yscrollcommand=list_sb.set)
         list_canvas.pack(side="left", fill="both", expand=True)
         list_sb.pack(side="right", fill="y")
@@ -3497,69 +3535,77 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 return
             pair = pairs[current_idx[0]]
             input_path = pair.get("input_path", "")
+            if not input_path:
+                lbl_rp_status.config(text="\uc785\ub825 \ud30c\uc77c \uacbd\ub85c \uc5c6\uc74c", fg=VF_RED)
+                return
+            in_path = Path(input_path)
             out_files = pair.get("output_files", [])
+            new_bytes = rp_result_bytes[0]
 
             try:
-                # \u2500\u2500 \ucf00\uc774\uc2a4 A: \uae30\uc874 \ucd9c\ub825 \ud30c\uc77c\uc774 \uc788\uc73c\uba74 \uadf8 \uc790\ub9ac \ub36e\uc5b4\uc4f0\uae30 \u2500\u2500
+                # OUTPUT \ub514\ub809\ud1a0\ub9ac \uacb0\uc815 (\uae30\uc874 \ucd9c\ub825\uc774 \uc788\uc73c\uba74 \uadf8 \ubd80\ubaa8, \uc5c6\uc73c\uba74 input \ubd80\ubaa8/OUTPUT)
                 if out_files:
-                    out_path = out_files[0]["path"]
-                    Path(out_path).write_bytes(rp_result_bytes[0])
-                    saved_name = Path(out_path).name
-                # \u2500\u2500 \ucf00\uc774\uc2a4 B: \ucd9c\ub825 \ud30c\uc77c \uc5c6\uc74c (\ub77c\ubca8\ucef7/\ud0d1\ub2e4\uc6b4 \ub4f1 \uc2a4\ud0b5\ub41c \ud30c\uc77c) \u2500\u2500
-                # \u2192 OUTPUT/original/{stem}_1.jpg \uc2e0\uaddc \uc0dd\uc131 + \uba40\ud2f0\uc0ac\uc774\uc988 \uc7ac\uc0dd\uc131
+                    out_dir = Path(out_files[0]["path"]).parent
+                    # \ub9cc\uc57d path\uac00 OUTPUT/{stem}_1.jpg\uba74 \uadf8\ub300\ub85c, OUTPUT/...\uc774\uba74 \ubd80\ubaa8\ub85c
+                    if out_dir.name in ("original", "1500", "860", "crop"):
+                        out_dir = out_dir.parent
                 else:
-                    if not input_path:
-                        lbl_rp_status.config(
-                            text="\uc785\ub825 \ud30c\uc77c \uacbd\ub85c \uc5c6\uc74c", fg=VF_RED)
-                        return
-                    in_path = Path(input_path)
                     out_dir = in_path.parent / "OUTPUT"
-                    original_dir = out_dir / "original"
-                    original_dir.mkdir(parents=True, exist_ok=True)
-                    stem = in_path.stem
-                    new_out = original_dir / f"{stem}_1.jpg"
-                    new_out.write_bytes(rp_result_bytes[0])
-                    saved_name = new_out.name
+                out_dir.mkdir(parents=True, exist_ok=True)
+                stem = in_path.stem
 
-                    # \uba40\ud2f0\uc0ac\uc774\uc988 \uc7ac\uc0dd\uc131 \uc2dc\ub3c4
+                # 1\ufe0f\u20e3 \uae30\ubcf8 \ucd9c\ub825 \ud30c\uc77c(\ud30c\uc774\ud504\ub77c\uc778\uc774 \ub9cc\ub4e4\ub358 OUTPUT/{stem}_1.jpg) \uac31\uc2e0
+                primary = out_dir / f"{stem}_1.jpg"
+                primary.write_bytes(new_bytes)
+                saved_parts = [primary.name]
+
+                # 2\ufe0f\u20e3 original/{stem}_1.jpg \uac31\uc2e0
+                orig_dir = out_dir / "original"
+                orig_dir.mkdir(parents=True, exist_ok=True)
+                (orig_dir / f"{stem}_1.jpg").write_bytes(new_bytes)
+                saved_parts.append(f"original/{stem}_1.jpg")
+
+                # 3\ufe0f\u20e3 \uba40\ud2f0\uc0ac\uc774\uc988 (1500/, 860/, crop) \uc7ac\uc0dd\uc131
+                try:
+                    from src.exporter.resizer import MultiSizeResizer
                     try:
-                        from src.exporter.resizer import MultiSizeResizer
-                        try:
-                            _settings = load_yaml(SETTINGS_PATH) or {}
-                        except Exception:
-                            _settings = {}
-                        resizer = MultiSizeResizer(out_dir, _settings)
-                        # \ud3f4\ub354 \ub0b4 \uc21c\ubc88 \u2014 vf_idx + 1 (\ub2e8\uc21c\ud654: \uce74\ub4dc \uc21c\uc11c \uadf8\ub300\ub85c)
-                        seq_n = pair.get("seq_n", current_idx[0] + 1)
-                        is_first = (current_idx[0] == 0)
-                        rs = resizer.make_resized_set(
-                            rp_result_bytes[0],
-                            seq_n=seq_n, is_first=is_first,
-                        )
-                        pair["seq_n"] = seq_n
-                        saved_name += f" + 1500/{seq_n}.jpg + 860/100_{seq_n}.jpg"
-                        if rs.get("crop"):
-                            saved_name += " + crop"
-                    except Exception as _re:
-                        # \uba40\ud2f0\uc0ac\uc774\uc988 \uc2e4\ud328\ub294 \uacbd\uace0\ub9cc (\uc6d0\ubcf8 \uc800\uc7a5\uc740 \uc131\uacf5)
+                        _settings = load_yaml(SETTINGS_PATH) or {}
+                    except Exception:
+                        _settings = {}
+                    resizer = MultiSizeResizer(out_dir, _settings)
+                    seq_n = pair.get("seq_n", current_idx[0] + 1)
+                    is_first = (current_idx[0] == 0)
+                    rs = resizer.make_resized_set(
+                        new_bytes, seq_n=seq_n, is_first=is_first,
+                    )
+                    pair["seq_n"] = seq_n
+                    if rs.get("size_1500"):
+                        saved_parts.append(f"1500/{seq_n}.jpg")
+                    if rs.get("size_860"):
+                        saved_parts.append(f"860/100_{seq_n}.jpg")
+                    if rs.get("crop"):
+                        saved_parts.append("860/100_list.jpg")
+                except Exception as _re:
+                    if hasattr(self, "_log_unified"):
                         self._log_unified(
                             f"  \u26a0\ufe0f \uc218\ub3d9 \uc7ac\uc791\uc5c5 \uba40\ud2f0\uc0ac\uc774\uc988 \uc2e4\ud328: {_re}",
-                            "warning") if hasattr(self, "_log_unified") else None
+                            "warning")
 
-                    # pair["output_files"] \uc5c5\ub370\uc774\ud2b8 \u2014 \ub2e4\uc74c \ubc88 \uc7ac\uc2dc\ub3c4 \uc2dc \ucf00\uc774\uc2a4 A\ub85c \ud750\ub984
-                    pair["output_files"] = [{
-                        "path": str(new_out),
-                        "size_kb": new_out.stat().st_size // 1024,
-                    }]
-                    # \uc0c1\ud0dc\ub3c4 'done'\uc73c\ub85c \uac31\uc2e0 (\uc774\uc804\uc5d4 'fail'\uc774\uc5c8\uc744 \uc218 \uc788\uc74c)
-                    pair["success"] = True
-                    pair["status"] = "done"
-                    fname = in_path.name
-                    if fname in self._vf_file_stages:
-                        self._vf_file_stages[fname]["status"] = "done"
+                # 4\ufe0f\u20e3 \uce74\ub4dc \uc0c1\ud0dc \uac31\uc2e0
+                pair["output_files"] = [{
+                    "path": str(primary),
+                    "size_kb": primary.stat().st_size // 1024,
+                }]
+                pair["success"] = True
+                pair["status"] = "done"
+                fname = in_path.name
+                if fname in self._vf_file_stages:
+                    self._vf_file_stages[fname]["status"] = "done"
 
                 lbl_rp_status.config(
-                    text=f"\u2713 \uc800\uc7a5 \uc644\ub8cc: {saved_name}", fg=VF_GREEN)
+                    text=f"\u2713 \uc800\uc7a5 \uc644\ub8cc: {', '.join(saved_parts[:4])}"
+                         + ("..." if len(saved_parts) > 4 else ""),
+                    fg=VF_GREEN)
                 btn_rp_confirm.config(state="disabled")
                 rp_result_bytes[0] = None
                 lbl_right_title.config(text="\u2728  \ucc98\ub9ac \uacb0\uacfc")
