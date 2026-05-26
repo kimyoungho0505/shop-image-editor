@@ -59,6 +59,31 @@ jobs:
           path.write_text(text, encoding="utf-8")
           print(f"version.py -> {ver}")
 
+      # ── 변경사항 자동 추출 (이전 태그 ~ 현재 태그) ──────────────
+      - name: Generate release notes
+        id: notes
+        shell: bash
+        run: |
+          # 현재 태그의 직전 태그 찾기
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+          # tags by version, find one immediately before current
+          PREV_TAG=$(git tag --sort=-v:refname | grep -A1 "^${CURRENT_TAG}$" | tail -n 1 || true)
+          if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "$CURRENT_TAG" ]; then
+            # fallback: 이전 태그 못 찾으면 최근 20개 커밋
+            LOG=$(git log --pretty=format:"%s" --max-count=20)
+          else
+            LOG=$(git log --pretty=format:"%s" "$PREV_TAG..$CURRENT_TAG")
+          fi
+          # Co-Authored / Merge / 빈 줄 제거 + 'feat: ' / 'fix: ' 등 prefix 정리
+          FILTERED=$(echo "$LOG" | grep -v "Co-Authored-By" | grep -v "^Merge " | grep -v "^$")
+          # 글머리 기호로 포맷
+          BULLETS=$(echo "$FILTERED" | sed 's/^/- /')
+          {
+            echo 'changes<<RELEASE_EOF'
+            echo "$BULLETS"
+            echo 'RELEASE_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       # ── PyInstaller 빌드 ──────────────────────────────────────
       - name: Build EXE
         run: pyinstaller gui3.spec --clean --noconfirm
@@ -76,23 +101,18 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "LUXBOY Shop Editor ${{ github.ref_name }}"
           body: |
-            ## 변경사항
-            이 릴리즈의 변경사항은 [history.md](https://github.com/${{ github.repository }}/blob/main/history.md)를 참고하세요.
+            ## 📋 변경사항
+            ${{ steps.notes.outputs.changes }}
 
-            ## 설치 방법
+            ## 📥 설치 방법
             1. 아래 `LUXBOY_ShopEditor_v*.exe` 를 다운로드
             2. EXE와 같은 폴더에 `.env` 파일 생성 (API 키 입력)
             3. EXE 실행
 
-            ## .env 파일 형식
-            ```
-            ANTHROPIC_API_KEY=...
-            OPENAI_API_KEY=...
-            GEMINI_API_KEY=...
-            PHOTOROOM_API_KEY=...
-            REMOVEBG_API_KEY=...
-            CLAID_API_KEY=...
-            ```
+            기존 사용자는 프로그램 시작 시 자동 업데이트 알림이 표시됩니다.
+
+            ## 📚 전체 히스토리
+            [history.md](https://github.com/${{ github.repository }}/blob/main/history.md)
           files: dist/LUXBOY_ShopEditor_v${{ steps.ver.outputs.version }}.exe
           draft: false
           prerelease: false

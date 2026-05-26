@@ -97,7 +97,7 @@ def check_for_update(github_token: str = "") -> Optional[UpdateInfo]:
         logger.debug("[Updater] EXE 에셋 없음")
         return None
 
-    notes = data.get("body", "")[:400]   # 릴리즈 노트 앞부분만
+    notes = data.get("body", "")[:3000]   # 릴리즈 노트 (변경사항 + 설치 방법)
     logger.info(f"[Updater] 새 버전 발견: {tag}")
     return UpdateInfo(version=tag, download_url=download_url, release_notes=notes)
 

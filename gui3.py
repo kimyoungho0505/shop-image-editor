@@ -235,7 +235,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self.after(0, lambda: self._show_update_dialog(info))
 
     def _show_update_dialog(self, info):
-        """업데이트 알림 다이얼로그."""
+        """업데이트 알림 — 스크롤 가능한 변경사항 + 업데이트 결정 UI."""
         from src.updater import download_update, apply_update
 
         try:
@@ -243,16 +243,114 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         except ImportError:
             __version__ = "?"
 
-        notes = info.release_notes.strip()
-        msg = (
-            f"새 버전 {info.version} 이 출시되었습니다!\n"
-            f"현재 버전: {__version__}\n\n"
-            + (f"📋 변경사항:\n{notes}\n\n" if notes else "")
-            + "지금 업데이트하시겠습니까?\n"
-            "(업데이트 후 앱이 자동으로 재시작됩니다)"
-        )
+        notes = (info.release_notes or "").strip()
 
-        if not messagebox.askyesno("업데이트 알림", msg, parent=self):
+        # 커스텀 다이얼로그 (스크롤 가능)
+        dlg = tk.Toplevel(self)
+        dlg.title("✨ 업데이트 알림")
+        dlg.configure(bg=CARD_BG)
+        dlg.resizable(True, True)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        # 사이즈/위치 (창 중앙)
+        dw, dh = 600, 500
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - dw) // 2
+        y = self.winfo_y() + (self.winfo_height() - dh) // 2
+        dlg.geometry(f"{dw}x{dh}+{max(0,x)}+{max(0,y)}")
+
+        # 헤더: 버전 비교
+        hdr = tk.Frame(dlg, bg=CARD_BG)
+        hdr.pack(fill="x", padx=20, pady=(18, 8))
+        tk.Label(
+            hdr, text="새 버전이 출시되었습니다",
+            bg=CARD_BG, fg="#1f2937",
+            font=(FONT_FAMILY, 14, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            hdr, text=f"  현재 버전:  v{__version__}",
+            bg=CARD_BG, fg="#6b7280", font=(FONT_FAMILY, 10),
+        ).pack(anchor="w", pady=(8, 0))
+        tk.Label(
+            hdr, text=f"  새 버전:    {info.version}",
+            bg=CARD_BG, fg="#16a34a", font=(FONT_FAMILY, 10, "bold"),
+        ).pack(anchor="w")
+
+        # 변경사항 영역 (스크롤 가능)
+        notes_lbl = tk.Label(
+            dlg, text="📋 변경사항",
+            bg=CARD_BG, fg="#374151", font=(FONT_FAMILY, 10, "bold"),
+            anchor="w",
+        )
+        notes_lbl.pack(fill="x", padx=20, pady=(4, 4))
+
+        notes_frame = tk.Frame(dlg, bg=CARD_BG, bd=1, relief="solid",
+                               highlightbackground="#d1d5db", highlightthickness=1)
+        notes_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+
+        notes_text = tk.Text(
+            notes_frame, wrap="word",
+            bg="#f9fafb", fg="#1f2937",
+            font=(FONT_FAMILY, 9), bd=0,
+            padx=10, pady=8, height=12,
+        )
+        notes_sb = tk.Scrollbar(
+            notes_frame, orient="vertical", command=notes_text.yview,
+            width=12,
+        )
+        notes_text.configure(yscrollcommand=notes_sb.set)
+        notes_sb.pack(side="right", fill="y")
+        notes_text.pack(side="left", fill="both", expand=True)
+        if notes:
+            notes_text.insert("1.0", notes)
+        else:
+            notes_text.insert("1.0", "(변경사항 정보 없음)")
+        notes_text.configure(state="disabled")
+
+        # 안내문
+        tk.Label(
+            dlg,
+            text="업데이트하면 앱이 종료되고 새 버전으로 자동 재시작됩니다.\n"
+                 ".env, config, 사용자 설정은 그대로 유지됩니다.",
+            bg=CARD_BG, fg="#6b7280", font=(FONT_FAMILY, 9),
+            justify="left",
+        ).pack(fill="x", padx=20, pady=(0, 8))
+
+        # 버튼 행
+        btn_row = tk.Frame(dlg, bg=CARD_BG)
+        btn_row.pack(fill="x", padx=20, pady=(0, 18))
+
+        result = {"answer": False}
+
+        def _yes():
+            result["answer"] = True
+            dlg.destroy()
+
+        def _no():
+            result["answer"] = False
+            dlg.destroy()
+
+        tk.Button(
+            btn_row, text="나중에", command=_no,
+            font=(FONT_FAMILY, 10),
+            bg="#e5e7eb", fg="#374151",
+            activebackground="#d1d5db", activeforeground="#374151",
+            bd=0, padx=18, pady=6, cursor="hand2",
+        ).pack(side="right", padx=(8, 0))
+        tk.Button(
+            btn_row, text="✨ 지금 업데이트", command=_yes,
+            font=(FONT_FAMILY, 10, "bold"),
+            bg="#3b82f6", fg="white",
+            activebackground="#2563eb", activeforeground="white",
+            bd=0, padx=18, pady=6, cursor="hand2",
+        ).pack(side="right")
+
+        dlg.protocol("WM_DELETE_WINDOW", _no)
+        dlg.bind("<Escape>", lambda _e: _no())
+        dlg.wait_window()
+
+        if not result["answer"]:
             return
 
         # 진행 다이얼로그
