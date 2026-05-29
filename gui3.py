@@ -2812,6 +2812,212 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         if done and stage == "저장":
             self._vf_file_stages[key]["status"] = "done"
 
+    def _vf_run_rework_one(self, vf_idx, nukki_mode, use_enhance):
+        """단일 카드 재작업 워커 — 결과를 pair에 영구 저장 (배치/단일 공용).
+
+        nukki_mode: "없음" | "Photoroom" | "RemoveBG"
+        use_enhance: bool (Claid 보정)
+        """
+        pairs = self._viewfinder_pairs
+        if vf_idx < 0 or vf_idx >= len(pairs):
+            return
+        target_pair = pairs[vf_idx]
+        input_path = target_pair.get("input_path", "")
+        if not input_path or not Path(input_path).exists():
+            return
+        if target_pair.get("_rp_running"):
+            return  # 이미 진행 중
+
+        target_pair["_rp_running"] = True
+        target_pair["_rp_result_bytes"] = None
+        target_pair["_rp_temp_path"] = None
+        target_pair["_rp_steps"] = ""
+        target_pair["_rp_status"] = "처리 준비 중..."
+
+        # 진행 표시 갱신
+        def _refresh_now():
+            try:
+                self._vf_refresh_row(vf_idx)
+            except Exception:
+                pass
+            cur = getattr(self, "_vf_current_idx_ref", [None])[0]
+            if cur == vf_idx and hasattr(self, "_vf_rp_refresh_panel"):
+                self._vf_rp_refresh_panel(vf_idx)
+        self.after(0, _refresh_now)
+
+        def _worker():
+            try:
+                from src.pipeline import ImageEditPipeline
+                from src.photoroom.client import PhotoroomClient
+                from src.removebg.client import RemoveBgClient
+                from src.claid.client import ClaidClient
+                import tempfile
+
+                current = Path(input_path).read_bytes()
+                steps_done = []
+
+                if nukki_mode == "Photoroom":
+                    pr = PhotoroomClient()
+                    pr_config = {
+                        "background.color": "FFFFFF", "export.format": "jpg",
+                        "outputSize": "1000x1000", "padding": "0.1", "scaling": "fit",
+                    }
+                    res = pr.process(current, "full", "clean",
+                                     output_size="1000x1000", config=pr_config)
+                    if res:
+                        current = res
+                        steps_done.append("누끼(Photoroom)")
+                elif nukki_mode == "RemoveBG":
+                    rb = RemoveBgClient()
+                    rb_config = {"size": "auto", "type": "product",
+                                 "format": "jpg", "bg_color": "ffffff"}
+                    res = rb.process(current, "full", "clean",
+                                     output_size="1000x1000", config=rb_config)
+                    if res:
+                        current = res
+                        steps_done.append("누끼(RemoveBG)")
+
+                if use_enhance:
+                    pl = ImageEditPipeline(config_dir=str(CONFIG_DIR))
+                    claid_settings = pl._settings.get("claid", {})
+                    claid_config = dict(claid_settings.get("full", {}))
+                    cl = ClaidClient()
+                    res = cl.process(current, "full", config=claid_config)
+                    if res:
+                        current = res
+                        steps_done.append("보정(Claid)")
+
+                size_kb = len(current) // 1024
+                steps_text = " + ".join(steps_done) if steps_done else "변환 없음"
+
+                tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+                tmp.write(current)
+                tmp.close()
+
+                target_pair["_rp_running"] = False
+                target_pair["_rp_result_bytes"] = current
+                target_pair["_rp_temp_path"] = tmp.name
+                target_pair["_rp_steps"] = steps_text
+                target_pair["_rp_pending"] = True
+                target_pair["_rp_status"] = (
+                    "✓ 재작업 완료(미저장): " + steps_text + " (" + str(size_kb) + "KB)")
+
+                def _done():
+                    try:
+                        self._vf_refresh_row(vf_idx)
+                    except Exception:
+                        pass
+                    cur = getattr(self, "_vf_current_idx_ref", [None])[0]
+                    if cur == vf_idx and hasattr(self, "_vf_rp_refresh_panel"):
+                        self._vf_rp_refresh_panel(vf_idx)
+                    tname = Path(input_path).name
+                    if hasattr(self, "_log_unified"):
+                        self._log_unified(
+                            "  ✓ [" + tname + "] 재작업 완료 (저장 대기)", "success")
+                self.after(0, _done)
+
+            except Exception as e:
+                import traceback as _tb
+                tb_str = _tb.format_exc()
+                target_pair["_rp_running"] = False
+                target_pair["_rp_status"] = "오류: " + str(e)[:50]
+
+                def _err():
+                    try:
+                        self._vf_refresh_row(vf_idx)
+                    except Exception:
+                        pass
+                    if hasattr(self, "_log_unified"):
+                        self._log_unified(tb_str, "error")
+                self.after(0, _err)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _vf_batch_rework(self):
+        """뷰파인더에서 체크된 여러 카드를 일괄 재작업 — 옵션 팝업 후 동시 처리."""
+        checks = getattr(self, "_vf_row_checks", {})
+        checked_idxs = [i for i, v in checks.items()
+                        if v.get() and 0 <= i < len(self._viewfinder_pairs)]
+        if not checked_idxs:
+            messagebox.showinfo(
+                "선택 재작업",
+                "목록에서 재작업할 컷을 체크하세요.\n"
+                "(각 파일 왼쪽 체크박스)",
+                parent=getattr(self, "_vf_dlg", self))
+            return
+        checked_idxs.sort()
+
+        # 옵션 팝업
+        dlg = tk.Toplevel(getattr(self, "_vf_dlg", self))
+        dlg.title(f"선택 재작업 — {len(checked_idxs)}개")
+        dlg.configure(bg="#1e1e2e")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        f = tk.Frame(dlg, bg="#1e1e2e", padx=22, pady=16)
+        f.pack(fill="both", expand=True)
+
+        tk.Label(f, text=f"✏️  선택한 {len(checked_idxs)}개 컷 일괄 재작업",
+                 bg="#1e1e2e", fg="#f9e2af",
+                 font=("맑은 고딕", 12, "bold")).pack(anchor="w", pady=(0, 4))
+        tk.Label(f, text="수행할 작업을 선택하세요 (기본: Photoroom 누끼 + Claid 보정)",
+                 bg="#1e1e2e", fg="#a6adc8",
+                 font=("맑은 고딕", 9)).pack(anchor="w", pady=(0, 12))
+
+        # 누끼 방식
+        nrow = tk.Frame(f, bg="#1e1e2e")
+        nrow.pack(fill="x", pady=(0, 6))
+        tk.Label(nrow, text="누끼:", bg="#1e1e2e", fg="#cdd6f4",
+                 font=("맑은 고딕", 10), width=6, anchor="w").pack(side="left")
+        var_nukki = tk.StringVar(value="Photoroom")   # 기본 Photoroom
+        for label in ["없음", "Photoroom", "RemoveBG"]:
+            tk.Radiobutton(
+                nrow, text=label, variable=var_nukki, value=label,
+                bg="#1e1e2e", fg="#cdd6f4", selectcolor="#313244",
+                activebackground="#1e1e2e", font=("맑은 고딕", 10),
+                cursor="hand2",
+            ).pack(side="left", padx=(0, 10))
+
+        # 보정
+        erow = tk.Frame(f, bg="#1e1e2e")
+        erow.pack(fill="x", pady=(0, 14))
+        tk.Label(erow, text="보정:", bg="#1e1e2e", fg="#cdd6f4",
+                 font=("맑은 고딕", 10), width=6, anchor="w").pack(side="left")
+        var_enhance = tk.BooleanVar(value=True)   # 기본 체크
+        tk.Checkbutton(
+            erow, text="Claid 보정", variable=var_enhance,
+            bg="#1e1e2e", fg="#cdd6f4", selectcolor="#313244",
+            activebackground="#1e1e2e", font=("맑은 고딕", 10),
+            cursor="hand2",
+        ).pack(side="left")
+
+        # 버튼
+        brow = tk.Frame(f, bg="#1e1e2e")
+        brow.pack(fill="x")
+
+        def _start():
+            nukki = var_nukki.get()
+            enhance = var_enhance.get()
+            dlg.destroy()
+            if hasattr(self, "_log_unified"):
+                self._log_unified(
+                    f"📋 선택 재작업 시작 — {len(checked_idxs)}개 "
+                    f"(누끼={nukki}, 보정={'O' if enhance else 'X'})", "info")
+            for i in checked_idxs:
+                self._vf_run_rework_one(i, nukki, enhance)
+                # 체크 해제 (작업 큐에 들어갔으므로)
+                try:
+                    self._vf_row_checks[i].set(False)
+                except Exception:
+                    pass
+
+        tk.Button(brow, text="취소", command=dlg.destroy,
+                  font=("맑은 고딕", 10), bg="#45475a", fg="white",
+                  bd=0, padx=16, pady=5, cursor="hand2").pack(side="right", padx=(8, 0))
+        tk.Button(brow, text="▶ 재작업 시작", command=_start,
+                  font=("맑은 고딕", 10, "bold"), bg="#2563eb", fg="white",
+                  bd=0, padx=16, pady=5, cursor="hand2").pack(side="right")
+
     def _open_viewfinder_from_output(self):
         """체크된 입력 폴더의 기존 OUTPUT 결과를 뷰파인더로 다시 불러온다.
 
@@ -2954,6 +3160,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self._vf_current_idx_ref = current_idx  # 외부 접근용 (image-2.0 완료 시 탭 재구성)
         out_idx = [0]
         photo_refs = []
+        self._vf_row_checks = {}   # 일괄 재작업용 체크박스 상태 (idx → BooleanVar)
+        self._vf_thumb_refs = {}   # 썸네일 PhotoImage 참조 (GC 방지)
 
         # ── 타이틀바 ──
         titlebar = tk.Frame(dlg, bg="#181825", height=32)
@@ -3047,9 +3255,23 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             content = tk.Frame(row, bg=VF_BG)
             content.pack(side="left", fill="x", expand=True, padx=(4, 2), pady=3)
 
-            # 상단: 아이콘 + 파일명
+            # 상단: 체크박스 + 아이콘 + 파일명
             top = tk.Frame(content, bg=VF_BG)
             top.pack(fill="x")
+
+            # 일괄 재작업용 체크박스
+            self._vf_row_checks = getattr(self, "_vf_row_checks", {})
+            chk_var = self._vf_row_checks.get(idx)
+            if chk_var is None:
+                chk_var = tk.BooleanVar(value=False)
+                self._vf_row_checks[idx] = chk_var
+            chk = tk.Checkbutton(
+                top, variable=chk_var,
+                bg=VF_BG, fg=VF_TEXT, selectcolor=VF_CARD,
+                activebackground=VF_BG, bd=0, highlightthickness=0,
+                cursor="hand2", takefocus=0,
+            )
+            chk.pack(side="left", padx=(0, 2))
 
             status = pair.get("status", "pending")
             icon_map = {
@@ -3600,8 +3822,19 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         tk.Frame(rp_panel, bg=VF_BORDER, height=1).pack(fill="x", pady=(0, 6))
 
-        tk.Label(rp_panel, text="\u270f\ufe0f  \uc218\ub3d9 \uc7ac\uc791\uc5c5",
-                 bg=VF_BG, fg="#bac2de", font=(FONT_FAMILY, 10, "bold")).pack(anchor="w")
+        rp_hdr = tk.Frame(rp_panel, bg=VF_BG)
+        rp_hdr.pack(fill="x")
+        tk.Label(rp_hdr, text="\u270f\ufe0f  \uc218\ub3d9 \uc7ac\uc791\uc5c5",
+                 bg=VF_BG, fg="#bac2de", font=(FONT_FAMILY, 10, "bold")).pack(side="left")
+        # \uccb4\ud06c\ud55c \uce74\ub4dc \uc77c\uad04 \uc7ac\uc791\uc5c5 \ubc84\ud2bc
+        tk.Button(
+            rp_hdr, text="\U0001f4cb \uc120\ud0dd \uc7ac\uc791\uc5c5(\uccb4\ud06c)",
+            command=lambda: self._vf_batch_rework(),
+            font=(FONT_FAMILY, 9, "bold"),
+            bg="#e67e22", fg="white",
+            activebackground="#d35400", activeforeground="white",
+            bd=0, padx=10, pady=2, cursor="hand2",
+        ).pack(side="right")
 
         # 누끼 방식 선택
         nukki_row = tk.Frame(rp_panel, bg=VF_BG)
