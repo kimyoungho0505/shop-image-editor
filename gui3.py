@@ -3044,6 +3044,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 "lbl_stage_text": lbl_stage_text, "lbl_result": lbl_result,
                 "val_icons": val_icons,
                 "status_val_frame": status_val_frame, "idx": idx, "top": top,
+                "_base_name": fname,
             }
 
             # 클릭 바인딩
@@ -3185,6 +3186,32 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             # 대기 파일 투명도 효과
             opacity_fg = VF_TEXT if status != "pending" else VF_TEXT_FAINT
             row_info["lbl_name"].config(fg=opacity_fg)
+
+            # ── 재작업 상태 배지 (파일명 앞에 표시) ──
+            pair = None
+            for _p in self._viewfinder_pairs:
+                if Path(_p.get("input_path", "")).name == fname:
+                    pair = _p
+                    break
+            base_name = row_info.get("_base_name", fname)
+            if pair is not None:
+                if pair.get("_rp_running"):
+                    row_info["lbl_name"].config(
+                        text=f"⏳재작업중 {base_name}", fg="#fab387")
+                elif pair.get("_rp_pending"):
+                    row_info["lbl_name"].config(
+                        text=f"✏️저장대기 {base_name}", fg="#f9e2af")
+                else:
+                    row_info["lbl_name"].config(text=base_name)
+
+        def _vf_refresh_row(idx):
+            """idx → fname 매핑 후 해당 카드 행 갱신 (워커 콜백에서 호출)."""
+            pairs = self._viewfinder_pairs
+            if not pairs or idx < 0 or idx >= len(pairs):
+                return
+            fname = Path(pairs[idx].get("input_path", "")).name
+            _update_row_stages(fname)
+        self._vf_refresh_row = _vf_refresh_row
 
         def _highlight_row(idx):
             for fname, info in file_rows.items():
@@ -3509,25 +3536,73 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         ).pack(side="left", padx=2)
 
 
-        rp_result_bytes = [None]  # 재처리 결과 (수정완료 전까지 임시 보관)
+        def _rp_refresh_panel(idx):
+            """현재 보고 있는 카드(idx)의 재작업 상태에 맞춰 패널 UI 갱신."""
+            pairs = self._viewfinder_pairs
+            if not pairs or idx < 0 or idx >= len(pairs):
+                return
+            pair = pairs[idx]
+            running = pair.get("_rp_running", False)
+            result = pair.get("_rp_result_bytes")
+            temp_path = pair.get("_rp_temp_path")
+            steps_text = pair.get("_rp_steps", "")
+            if running:
+                btn_rp_run.config(state="disabled", text="⏳ 처리 중...")
+                btn_rp_confirm.config(state="disabled")
+                lbl_rp_status.config(
+                    text=pair.get("_rp_status", "처리 중..."), fg=VF_ACCENT)
+            elif result:
+                btn_rp_run.config(state="normal", text="▶ 재작업 실행")
+                btn_rp_confirm.config(state="normal")
+                size_kb = len(result) // 1024
+                lbl_rp_status.config(
+                    text="✓ 재작업 완료(미저장): "
+                         + steps_text + " (" + str(size_kb) + "KB)",
+                    fg=VF_GREEN)
+                if temp_path and Path(temp_path).exists():
+                    try:
+                        from PIL import Image as _PILImage
+                        _img = _PILImage.open(temp_path)
+                        _fit_image(cv_proc, _img)
+                        lbl_right_title.config(text="✏️  재처리 결과 (미저장)")
+                        lbl_proc_info.config(text="재처리  ·  " + str(size_kb) + "KB")
+                    except Exception:
+                        pass
+            else:
+                btn_rp_run.config(state="normal", text="▶ 재작업 실행")
+                btn_rp_confirm.config(state="disabled")
+                lbl_rp_status.config(text="")
+
+        self._vf_rp_refresh_panel = _rp_refresh_panel
 
         def _on_rp_run():
             pairs = self._viewfinder_pairs
             if not pairs or current_idx[0] >= len(pairs):
                 return
-            pair = pairs[current_idx[0]]
-            input_path = pair.get("input_path", "")
+            target_idx = current_idx[0]
+            target_pair = pairs[target_idx]
+            input_path = target_pair.get("input_path", "")
             if not input_path or not Path(input_path).exists():
-                lbl_rp_status.config(text="\uc6d0\ubcf8 \ud30c\uc77c \uc5c6\uc74c", fg=VF_RED)
+                lbl_rp_status.config(text="원본 파일 없음", fg=VF_RED)
+                return
+            if target_pair.get("_rp_running"):
+                lbl_rp_status.config(text="이미 재작업 진행 중입니다", fg=VF_ACCENT)
                 return
 
             nukki_mode = rp_nukki_var.get()
             use_enhance = rp_enhance_var.get()
 
-            btn_rp_run.config(state="disabled", text="\u23f3 \ucc98\ub9ac \uc911...")
-            btn_rp_confirm.config(state="disabled")
-            lbl_rp_status.config(text="\ucc98\ub9ac \uc900\ube44 \uc911...", fg=VF_ACCENT)
-            rp_result_bytes[0] = None
+            target_pair["_rp_running"] = True
+            target_pair["_rp_result_bytes"] = None
+            target_pair["_rp_temp_path"] = None
+            target_pair["_rp_steps"] = ""
+            target_pair["_rp_status"] = "처리 준비 중..."
+            _rp_refresh_panel(target_idx)
+
+            def _set_status(txt):
+                target_pair["_rp_status"] = txt
+                if current_idx[0] == target_idx:
+                    self.after(0, lambda: lbl_rp_status.config(text=txt, fg=VF_ACCENT))
 
             def _run():
                 try:
@@ -3537,14 +3612,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     from src.claid.client import ClaidClient
                     import tempfile
 
-                    image_bytes = Path(input_path).read_bytes()
-                    current = image_bytes
+                    current = Path(input_path).read_bytes()
                     steps_done = []
 
-                    # 누끼
                     if nukki_mode == "Photoroom":
-                        dlg.after(0, lambda: lbl_rp_status.config(
-                            text="Photoroom \ub204\ub07c \uc791\uc5c5 \uc911...", fg=VF_ACCENT))
+                        _set_status("Photoroom 누끼 작업 중...")
                         pr = PhotoroomClient()
                         pr_config = {
                             "background.color": "FFFFFF",
@@ -3559,8 +3631,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                             current = res
                             steps_done.append("누끼(Photoroom)")
                     elif nukki_mode == "RemoveBG":
-                        dlg.after(0, lambda: lbl_rp_status.config(
-                            text="RemoveBG \ub204\ub07c \uc791\uc5c5 \uc911...", fg=VF_ACCENT))
+                        _set_status("RemoveBG 누끼 작업 중...")
                         rb = RemoveBgClient()
                         rb_config = {
                             "size": "auto",
@@ -3570,12 +3641,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                         }
                         res = rb.process(current, "full", "clean",
                                          output_size="1000x1000", config=rb_config)
+                        if res:
+                            current = res
+                            steps_done.append("누끼(RemoveBG)")
 
-
-                    # 보정
                     if use_enhance:
-                        dlg.after(0, lambda: lbl_rp_status.config(
-                            text="Claid \ubcf4\uc815 \uc911...", fg=VF_ACCENT))
+                        _set_status("Claid 보정 중...")
                         pl = ImageEditPipeline(config_dir=str(CONFIG_DIR))
                         claid_settings = pl._settings.get("claid", {})
                         claid_config = dict(claid_settings.get("full", {}))
@@ -3585,60 +3656,70 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                             current = res
                             steps_done.append("보정(Claid)")
 
-                    rp_result_bytes[0] = current
                     size_kb = len(current) // 1024
+                    steps_text = " + ".join(steps_done) if steps_done else "변환 없음"
 
-                    # 임시 파일에 저장 (뷰파인더 표시용)
                     tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
                     tmp.write(current)
                     tmp.close()
-                    pair["_rp_temp_path"] = tmp.name
 
-                    steps_text = " + ".join(steps_done) if steps_done else "\ubcc0\ud658 \uc5c6\uc74c"
+                    target_pair["_rp_running"] = False
+                    target_pair["_rp_result_bytes"] = current
+                    target_pair["_rp_temp_path"] = tmp.name
+                    target_pair["_rp_steps"] = steps_text
+                    target_pair["_rp_pending"] = True
+                    target_pair["_rp_status"] = (
+                        "✓ 재작업 완료(미저장): "
+                        + steps_text + " (" + str(size_kb) + "KB)")
 
                     def _done():
-                        lbl_rp_status.config(
-                            text=f"\uc644\ub8cc: {steps_text}  ({size_kb}KB)", fg=VF_GREEN)
-                        btn_rp_run.config(state="normal", text="\u25b6 \uc7ac\uc791\uc5c5 \uc2e4\ud589")
-                        btn_rp_confirm.config(state="normal")
-                        # 뷰파인더 우측 이미지 갱신
                         try:
-                            from PIL import Image as _PILImage
-                            img = _PILImage.open(tmp.name)
-                            _fit_image(cv_proc, img)
-                            lbl_right_title.config(text="\u270f\ufe0f  \uc7ac\ucc98\ub9ac \uacb0\uacfc (\ubbf8\ud655\uc815)")
-                            lbl_proc_info.config(text=f"\uc7ac\ucc98\ub9ac  \u00b7  {size_kb}KB")
+                            self._vf_refresh_row(target_idx)
                         except Exception:
                             pass
-                    dlg.after(0, _done)
+                        if current_idx[0] == target_idx:
+                            _rp_refresh_panel(target_idx)
+                        else:
+                            tname = Path(input_path).name
+                            if hasattr(self, "_log_unified"):
+                                self._log_unified(
+                                    "  ✓ [" + tname + "] 재작업 완료 (저장 대기) — "
+                                    "목록에서 해당 컷 선택 후 '수정완료' 누르세요",
+                                    "success")
+                    self.after(0, _done)
 
                 except Exception as e:
                     import traceback as _tb
                     err_msg = str(e)
                     tb_str = _tb.format_exc()
+                    target_pair["_rp_running"] = False
+                    target_pair["_rp_status"] = "오류: " + err_msg[:50]
 
                     def _err():
-                        lbl_rp_status.config(text=f"\uc624\ub958: {err_msg[:50]}", fg=VF_RED)
-                        btn_rp_run.config(state="normal", text="\u25b6 \uc7ac\uc791\uc5c5 \uc2e4\ud589")
+                        if current_idx[0] == target_idx:
+                            lbl_rp_status.config(text="오류: " + err_msg[:50], fg=VF_RED)
+                            btn_rp_run.config(state="normal", text="▶ 재작업 실행")
                         self._log_unified(tb_str, "error")
-                    dlg.after(0, _err)
+                    self.after(0, _err)
 
             threading.Thread(target=_run, daemon=True).start()
 
         def _on_rp_confirm():
-            if rp_result_bytes[0] is None:
-                return
             pairs = self._viewfinder_pairs
             if not pairs or current_idx[0] >= len(pairs):
                 return
+            # \u2605 \ud604\uc7ac \ubcf4\uace0 \uc788\ub294 \uce74\ub4dc\uc758 \uc800\uc7a5\ub41c \uc7ac\uc791\uc5c5 \uacb0\uacfc\ub97c \uc0ac\uc6a9
             pair = pairs[current_idx[0]]
+            new_bytes = pair.get("_rp_result_bytes")
+            if new_bytes is None:
+                lbl_rp_status.config(text="\uc800\uc7a5\ud560 \uc7ac\uc791\uc5c5 \uacb0\uacfc\uac00 \uc5c6\uc2b5\ub2c8\ub2e4", fg=VF_RED)
+                return
             input_path = pair.get("input_path", "")
             if not input_path:
                 lbl_rp_status.config(text="\uc785\ub825 \ud30c\uc77c \uacbd\ub85c \uc5c6\uc74c", fg=VF_RED)
                 return
             in_path = Path(input_path)
             out_files = pair.get("output_files", [])
-            new_bytes = rp_result_bytes[0]
 
             try:
                 # OUTPUT \ub514\ub809\ud1a0\ub9ac \uacb0\uc815 (\uae30\uc874 \ucd9c\ub825\uc774 \uc788\uc73c\uba74 \uadf8 \ubd80\ubaa8, \uc5c6\uc73c\uba74 input \ubd80\ubaa8/OUTPUT)
@@ -3705,7 +3786,16 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                          + ("..." if len(saved_parts) > 4 else ""),
                     fg=VF_GREEN)
                 btn_rp_confirm.config(state="disabled")
-                rp_result_bytes[0] = None
+                # \u2605 \uc800\uc7a5 \uc644\ub8cc \u2192 \uc774 \uce74\ub4dc\uc758 \uc7ac\uc791\uc5c5 \uc784\uc2dc \uacb0\uacfc \uc815\ub9ac
+                pair["_rp_result_bytes"] = None
+                pair["_rp_temp_path"] = None
+                pair["_rp_steps"] = ""
+                pair["_rp_status"] = ""
+                pair["_rp_pending"] = False
+                try:
+                    self._vf_refresh_row(current_idx[0])
+                except Exception:
+                    pass
                 lbl_right_title.config(text="\u2728  \ucc98\ub9ac \uacb0\uacfc")
                 _show(current_idx[0], out_idx[0])
             except Exception as e:
@@ -3796,12 +3886,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             out_idx[0] = out_sub
             pair = pairs[idx]
             _highlight_row(idx)
-            # 재처리 패널 초기화 (다른 이미지로 전환 시)
+            # 재처리 패널을 이 카드의 저장된 재작업 상태로 복원
+            # (결과는 카드별로 보존되어 화면 이동해도 사라지지 않음)
             try:
-                rp_result_bytes[0] = None
-                btn_rp_confirm.config(state="disabled")
-                lbl_rp_status.config(text="")
                 lbl_right_title.config(text="\u2728  \ucc98\ub9ac \uacb0\uacfc")
+                self._vf_rp_refresh_panel(idx)
             except Exception:
                 pass
 
