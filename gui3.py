@@ -1729,6 +1729,9 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                    ).pack(side="left", padx=(0, 8))
         ttk.Button(btn_row, text="출력열기",
                    command=self._open_unified_output_folder).pack(side="left")
+        # 체크한 폴더의 기존 OUTPUT 결과를 뷰파인더로 다시 보기 (재처리 불필요)
+        ttk.Button(btn_row, text="🔍 뷰파인더 보기",
+                   command=self._open_viewfinder_from_output).pack(side="left", padx=(8, 0))
 
         # ── 오른쪽: 로그 ──
         log_card = tk.LabelFrame(bottom, text=" 로그 ", font=(FONT_FAMILY, 9, "bold"),
@@ -2809,6 +2812,89 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         if done and stage == "저장":
             self._vf_file_stages[key]["status"] = "done"
 
+    def _open_viewfinder_from_output(self):
+        """체크된 입력 폴더의 기존 OUTPUT 결과를 뷰파인더로 다시 불러온다.
+
+        재처리 없이 디스크에 저장된 결과(OUTPUT/{stem}_1.jpg, original/, 1500/, 860/)를
+        스캔해 뷰파인더 카드로 복원한다. 프로그램 재실행 후에도 확인/재작업 가능.
+        """
+        from src.utils.image_io import get_image_files
+
+        children = list(self.tv_folders.get_children())
+        if not children:
+            messagebox.showwarning("알림", "입력 폴더를 먼저 추가하세요.")
+            return
+        # 체크된 폴더 → 없으면 선택 행 → 없으면 전체
+        checked = [i for i in children if self.tv_folders.set(i, "sel") == "☑"]
+        if not checked:
+            sel = list(self.tv_folders.selection())
+            checked = sel if sel else children
+
+        folders = [self.tv_folders.set(i, "path") for i in checked]
+
+        # 뷰파인더 데이터 재구성
+        self._viewfinder_pairs = []
+        self._vf_file_stages = {}
+        self._barcode_excluded_files = []
+        if hasattr(self, "_vf_pre_registered"):
+            self._vf_pre_registered = {}
+
+        total_loaded = 0
+        for folder in folders:
+            fp = Path(folder)
+            if not fp.is_dir():
+                continue
+            out_dir = fp / "OUTPUT"
+            try:
+                imgs = get_image_files(folder)
+            except Exception:
+                imgs = []
+            for local_n, img_path in enumerate(imgs, 1):
+                stem = Path(img_path).stem
+                fname = Path(img_path).name
+                # 출력 파일 후보 (우선순위: OUTPUT/{stem}_1.jpg → original/{stem}_1.jpg)
+                candidates = [
+                    out_dir / f"{stem}_1.jpg",
+                    out_dir / "original" / f"{stem}_1.jpg",
+                ]
+                out_path = next((c for c in candidates if c.exists()), None)
+
+                self._vf_file_stages[fname] = {
+                    "stages": {}, "status": "done" if out_path else "pending",
+                    "stage_images": {},
+                }
+                pair = {
+                    "input_path": str(img_path),
+                    "output_files": (
+                        [{"path": str(out_path),
+                          "size_kb": out_path.stat().st_size // 1024}]
+                        if out_path else []),
+                    "success": bool(out_path),
+                    "status": "done" if out_path else "pending",
+                    "seq_n": local_n,
+                    "image2_results": [],
+                    "image2_selected_idx": -1,
+                    "image2_stages": [],
+                    "final_saved": False,
+                }
+                self._viewfinder_pairs.append(pair)
+                if out_path:
+                    total_loaded += 1
+
+        if not self._viewfinder_pairs:
+            messagebox.showwarning(
+                "알림",
+                "선택한 폴더에 이미지가 없습니다.\n"
+                "(폴더를 체크한 후 다시 시도하세요)")
+            return
+
+        self.btn_unified_vf.config(state="normal")
+        self._open_viewfinder()
+        self._log_unified(
+            f"🔍 뷰파인더 불러오기 — {len(folders)}개 폴더, "
+            f"{len(self._viewfinder_pairs)}장 (결과 있음 {total_loaded}장)",
+            "info") if hasattr(self, "_log_unified") else None
+
     def _open_viewfinder(self):
         from PIL import Image, ImageTk
 
@@ -2891,7 +2977,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         main.pack(fill="both", expand=True)
 
         # ── 좌측: 파일 리스트 ──
-        left = tk.Frame(main, bg=VF_BG, width=280)
+        left = tk.Frame(main, bg=VF_BG, width=420)
         left.pack(side="left", fill="y")
         left.pack_propagate(False)
 
@@ -2988,6 +3074,55 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 dlg.after(500, lambda w=e.widget: w.config(fg=VF_TEXT))
             lbl_name.bind("<Button-3>", _copy_fname)
             lbl_name.bind("<Double-Button-1>", _copy_fname)
+
+            # ── 원본 / 수정본 썸네일 행 ──
+            self._vf_thumb_refs = getattr(self, "_vf_thumb_refs", {})
+
+            def _make_thumb(path, size=78):
+                """이미지 경로 → 썸네일 PhotoImage (실패 시 None)."""
+                try:
+                    if not path or not Path(path).exists():
+                        return None
+                    im = Image.open(path)
+                    im.thumbnail((size, size), Image.LANCZOS)
+                    return ImageTk.PhotoImage(im)
+                except Exception:
+                    return None
+
+            thumb_row = tk.Frame(content, bg=VF_BG)
+            thumb_row.pack(fill="x", padx=(20, 2), pady=(4, 2))
+
+            input_path = pair.get("input_path", "")
+            out_files = pair.get("output_files", [])
+            out_path = out_files[0]["path"] if out_files else None
+
+            th_in = _make_thumb(input_path)
+            th_out = _make_thumb(out_path)
+            self._vf_thumb_refs[idx] = (th_in, th_out)  # GC 방지
+
+            # 원본 썸네일 + 라벨
+            in_box = tk.Frame(thumb_row, bg=VF_BG)
+            in_box.pack(side="left", padx=(0, 10))
+            tk.Label(in_box, text="원본", bg=VF_BG, fg=VF_TEXT_DIM,
+                     font=(FONT_FAMILY, 7)).pack()
+            if th_in:
+                tk.Label(in_box, image=th_in, bg="#ffffff", bd=1,
+                         relief="solid").pack()
+            else:
+                tk.Label(in_box, text="—", bg=VF_PIP_BG, fg=VF_TEXT_FAINT,
+                         width=10, height=4).pack()
+
+            # 수정본 썸네일 + 라벨
+            out_box = tk.Frame(thumb_row, bg=VF_BG)
+            out_box.pack(side="left")
+            tk.Label(out_box, text="수정", bg=VF_BG, fg=VF_TEXT_DIM,
+                     font=(FONT_FAMILY, 7)).pack()
+            if th_out:
+                tk.Label(out_box, image=th_out, bg="#ffffff", bd=1,
+                         relief="solid").pack()
+            else:
+                tk.Label(out_box, text="미처리", bg=VF_PIP_BG, fg=VF_TEXT_FAINT,
+                         width=10, height=4, font=(FONT_FAMILY, 8)).pack()
 
             # 스테이지 pip 바
             pip_frame = tk.Frame(content, bg=VF_BG)
