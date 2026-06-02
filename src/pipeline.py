@@ -4897,6 +4897,7 @@ class ImageEditPipeline:
                     has_mannequin=has_mannequin,
                     is_label_cut=is_label_cut,
                     barcode_number=barcode_number,
+                    custom_categories=routing_rules.get("custom_categories"),
                 )
                 verdict = evaluate_v2(routing_rules, category,
                                       shooting_angle=shooting_angle,

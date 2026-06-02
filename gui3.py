@@ -946,18 +946,134 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self.after(2000, lambda: self.cond_status.config(text=""))
 
     def _add_routing_rule(self):
-        from src.utils.category_router import SORTABLE_CATEGORIES
+        """조건 추가 — 팝업에서 카테고리 선택 또는 새 카테고리 생성."""
+        from src.utils.category_router import (
+            SORTABLE_CATEGORIES, CATEGORY_LABELS, slugify_category,
+        )
         v2 = self._collect_routing_rules_from_ui()
-        used = {r.get("category") for r in v2.get("priority_rules", [])}
-        new_cat = next((c for c in SORTABLE_CATEGORIES if c not in used),
-                       SORTABLE_CATEGORIES[0])
-        v2.setdefault("priority_rules", []).append({
-            "category": new_cat, "nukki": True, "shadow": False, "enhance": True,
-            "shooting_angle": "any", "background_type": "any",
-        })
-        self._routing_rules_data = v2
-        self._render_routing_rules()
-        self._cond_canvas.after(50, lambda: self._cond_canvas.yview_moveto(1.0))
+        custom_cats = v2.get("custom_categories", []) or []
+
+        # 선택 가능한 카테고리 목록 (빌트인 + 기존 커스텀)
+        all_keys = list(SORTABLE_CATEGORIES) + [c.get("key") for c in custom_cats]
+        def _klabel(k):
+            if k in CATEGORY_LABELS:
+                return CATEGORY_LABELS[k]
+            for c in custom_cats:
+                if c.get("key") == k:
+                    return c.get("label", k)
+            return k
+        labels = [_klabel(k) for k in all_keys]
+        label_to_key = {_klabel(k): k for k in all_keys}
+
+        dlg = tk.Toplevel(self)
+        dlg.title("조건 추가")
+        dlg.configure(bg=CARD_BG)
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+        f = tk.Frame(dlg, bg=CARD_BG, padx=20, pady=16)
+        f.pack(fill="both", expand=True)
+
+        tk.Label(f, text="새 조건 추가", bg=CARD_BG, fg="#1f2937",
+                 font=(FONT_FAMILY, 12, "bold")).pack(anchor="w", pady=(0, 10))
+
+        # 카테고리 선택 / 새로 만들기 모드 전환
+        mode = tk.StringVar(value="existing")
+        # ── 기존 카테고리 선택 ──
+        exrow = tk.Frame(f, bg=CARD_BG)
+        exrow.pack(fill="x", pady=(0, 4))
+        tk.Radiobutton(exrow, text="기존 카테고리", variable=mode, value="existing",
+                       bg=CARD_BG, font=(FONT_FAMILY, 10)).pack(side="left")
+        var_cat = tk.StringVar(value=labels[0] if labels else "")
+        cat_combo = ttk.Combobox(exrow, textvariable=var_cat, values=labels,
+                                 state="readonly", width=18, font=(FONT_FAMILY, 10))
+        cat_combo.pack(side="left", padx=(8, 0))
+
+        # ── 새 카테고리 만들기 ──
+        newrow = tk.Frame(f, bg=CARD_BG)
+        newrow.pack(fill="x", pady=(4, 4))
+        tk.Radiobutton(newrow, text="새 카테고리 만들기", variable=mode, value="new",
+                       bg=CARD_BG, font=(FONT_FAMILY, 10)).pack(anchor="w")
+        nf = tk.Frame(f, bg=CARD_BG)
+        nf.pack(fill="x", padx=(24, 0), pady=(0, 6))
+        tk.Label(nf, text="이름:", bg=CARD_BG, fg="#374151",
+                 font=(FONT_FAMILY, 9), width=12, anchor="w").grid(row=0, column=0, sticky="w", pady=2)
+        var_new_name = tk.StringVar()
+        ttk.Entry(nf, textvariable=var_new_name, width=22,
+                  font=(FONT_FAMILY, 10)).grid(row=0, column=1, sticky="w", pady=2)
+        tk.Label(nf, text="감지값(category):", bg=CARD_BG, fg="#374151",
+                 font=(FONT_FAMILY, 9), width=12, anchor="w").grid(row=1, column=0, sticky="w", pady=2)
+        var_new_match = tk.StringVar()
+        ttk.Entry(nf, textvariable=var_new_match, width=22,
+                  font=(FONT_FAMILY, 10)).grid(row=1, column=1, sticky="w", pady=2)
+        tk.Label(nf, text="예: shoes, watch, bag — Vision이 감지한 카테고리 값과 일치 시 적용",
+                 bg=CARD_BG, fg="#9ca3af", font=(FONT_FAMILY, 8),
+                 wraplength=320, justify="left").grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
+        # ── 처리 옵션 ──
+        prow = tk.Frame(f, bg=CARD_BG)
+        prow.pack(fill="x", pady=(8, 4))
+        tk.Label(prow, text="처리:", bg=CARD_BG, fg="#374151",
+                 font=(FONT_FAMILY, 10), width=6, anchor="w").pack(side="left")
+        v_n = tk.BooleanVar(value=True)
+        v_s = tk.BooleanVar(value=False)
+        v_e = tk.BooleanVar(value=True)
+        for txt, var in [("누끼", v_n), ("그림자", v_s), ("보정", v_e)]:
+            tk.Checkbutton(prow, text=txt, variable=var, bg=CARD_BG,
+                           font=(FONT_FAMILY, 10)).pack(side="left", padx=(0, 8))
+
+        result = {"ok": False}
+
+        def _ok():
+            from src.utils.category_router import slugify_category as _slug
+            if mode.get() == "new":
+                name = var_new_name.get().strip()
+                match = var_new_match.get().strip()
+                if not name or not match:
+                    messagebox.showwarning("입력 필요",
+                                           "새 카테고리의 이름과 감지값을 모두 입력하세요.",
+                                           parent=dlg)
+                    return
+                existing_keys = set(all_keys)
+                new_key = _slug(name, existing_keys)
+                custom_cats.append({
+                    "key": new_key, "label": name,
+                    "match_detected_category": match.lower(),
+                })
+                cat_key = new_key
+            else:
+                cat_key = label_to_key.get(var_cat.get())
+                if not cat_key:
+                    messagebox.showwarning("선택 필요", "카테고리를 선택하세요.", parent=dlg)
+                    return
+            v2.setdefault("priority_rules", []).append({
+                "category": cat_key,
+                "nukki": v_n.get(), "shadow": v_s.get(), "enhance": v_e.get(),
+                "shooting_angle": "any", "background_type": "any",
+            })
+            v2["custom_categories"] = custom_cats
+            result["ok"] = True
+            dlg.destroy()
+
+        brow = tk.Frame(f, bg=CARD_BG)
+        brow.pack(fill="x", pady=(10, 0))
+        tk.Button(brow, text="취소", command=dlg.destroy,
+                  font=(FONT_FAMILY, 10), bg="#e5e7eb", fg="#374151",
+                  bd=0, padx=16, pady=5, cursor="hand2").pack(side="right", padx=(8, 0))
+        tk.Button(brow, text="추가", command=_ok,
+                  font=(FONT_FAMILY, 10, "bold"), bg="#3b82f6", fg="white",
+                  bd=0, padx=16, pady=5, cursor="hand2").pack(side="right")
+
+        dlg.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - dlg.winfo_width()) // 2
+        y = self.winfo_y() + (self.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{max(0,x)}+{max(0,y)}")
+        dlg.wait_window()
+
+        if result["ok"]:
+            self._routing_rules_data = v2
+            self._render_routing_rules()
+            self._cond_canvas.after(50, lambda: self._cond_canvas.yview_moveto(1.0))
 
     def _collect_routing_rules_from_ui(self):
         """\ud604\uc7ac \uce74\ub4dc UI\uc5d0\uc11c v2 dict \uc218\uc9d1."""
@@ -982,6 +1098,14 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         else:
             fixed_bottom = [{"category": "default", "nukki": True,
                              "shadow": True, "enhance": True}]
+        # 커스텀 카테고리 정의는 _routing_rules_data에서 보존
+        custom_cats = []
+        cur = getattr(self, "_routing_rules_data", None)
+        if isinstance(cur, dict):
+            custom_cats = cur.get("custom_categories", []) or []
+        # priority에서 실제 사용 중인 커스텀만 유지 (삭제된 건 정리)
+        used_keys = {r.get("category") for r in priority}
+        custom_cats = [c for c in custom_cats if c.get("key") in used_keys]
         return {
             "version": 2,
             "fixed_top": [
@@ -990,6 +1114,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             ],
             "priority_rules": priority,
             "fixed_bottom": fixed_bottom,
+            "custom_categories": custom_cats,
         }
 
     def _render_routing_rules(self):
@@ -1011,9 +1136,19 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         LOCK_BG = "#e5e7eb"
         LOCK_FG = "#6b7280"
 
+        # \ube4c\ud2b8\uc778 + \ucee4\uc2a4\ud140 \uce74\ud14c\uace0\ub9ac\ub97c \ucf64\ubcf4\ubc15\uc2a4 \ubaa9\ub85d\uc73c\ub85c \uacb0\ud569
+        custom_cats = v2.get("custom_categories", []) or []
+        all_keys = list(SORTABLE_CATEGORIES) + [c.get("key") for c in custom_cats]
+        def _key_label(k):
+            if k in CATEGORY_LABELS:
+                return CATEGORY_LABELS[k]
+            for c in custom_cats:
+                if c.get("key") == k:
+                    return c.get("label", k)
+            return k
         # \ud55c\uae00\ud45c\uc2dc\uba85 \u2192 \ud0a4 \uc5ed\ub9f5\ud551 (\ucf64\ubcf4\ubc15\uc2a4\uc6a9)
-        sortable_labels = [CATEGORY_LABELS[k] for k in SORTABLE_CATEGORIES]
-        label_to_key = {CATEGORY_LABELS[k]: k for k in SORTABLE_CATEGORIES}
+        sortable_labels = [_key_label(k) for k in all_keys]
+        label_to_key = {_key_label(k): k for k in all_keys}
 
         COLORS = ["#3b82f6", "#7c3aed", "#16a34a", "#d97706",
                   "#ef4444", "#0891b2", "#db2777", "#ca8a04", "#059669"]
@@ -1058,7 +1193,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                      font=(FONT_FAMILY, 9)).pack(side="left", padx=(4, 2))
 
             cur_key = rule.get("category", SORTABLE_CATEGORIES[0])
-            cur_label = CATEGORY_LABELS.get(cur_key, sortable_labels[0])
+            cur_label = _key_label(cur_key)
             var_cat = tk.StringVar(value=cur_label)
             ttk.Combobox(header, textvariable=var_cat, values=sortable_labels,
                          width=14, state="readonly",

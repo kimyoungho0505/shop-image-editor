@@ -1,7 +1,27 @@
 # LUXBOY Shop Image Editor - 개발 히스토리
 
-> 마지막 업데이트: 2026-06-02 (21차)
+> 마지막 업데이트: 2026-06-02 (22차)
 > 다른 PC에서 이어서 개발할 때 이 문서를 참고하세요.
+
+---
+
+## 2026-06-02 (22차) — 조건 추가 팝업 + 커스텀 카테고리 생성
+
+### 변경
+- 조건 탭 '조건 추가' → 인라인 카드 → **팝업 다이얼로그**로 변경
+- 팝업에서:
+  · 기존 카테고리 선택 (빌트인 + 이전에 만든 커스텀)
+  · **새 카테고리 만들기**: 이름 + 감지값(Vision detected_category) 입력
+  · 처리 옵션(누끼/그림자/보정) 선택
+- 커스텀 카테고리는 v2 yaml `custom_categories: [{key, label, match_detected_category}]`에 저장
+- `map_to_category`가 커스텀 카테고리를 빌트인보다 우선 매칭 (detected_category 일치)
+- priority_rules에서 미사용 커스텀은 저장 시 자동 정리
+
+### 기술
+- `category_router.py`: map_to_category에 custom_categories 파라미터,
+  category_label / slugify_category 헬퍼 추가
+- `pipeline.py`: routing_rules.custom_categories를 map_to_category에 전달
+- `gui3.py`: _add_routing_rule 팝업 재작성, 콤보박스에 커스텀 포함
 
 ---
 

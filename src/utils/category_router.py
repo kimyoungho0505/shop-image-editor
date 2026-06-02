@@ -43,9 +43,36 @@ SORTABLE_CATEGORIES = [
 ]
 
 
+def category_label(key: str, custom_categories: list = None) -> str:
+    """카테고리 키 → 한글 표시명 (빌트인 + 커스텀)."""
+    if key in CATEGORY_LABELS:
+        return CATEGORY_LABELS[key]
+    for c in (custom_categories or []):
+        if c.get("key") == key:
+            return c.get("label", key)
+    return key
+
+
+def slugify_category(label: str, existing_keys: set = None) -> str:
+    """카테고리 한글 이름 → 고유 키 생성 (custom_ 접두)."""
+    import re
+    base = re.sub(r"[^a-z0-9]+", "_", (label or "").strip().lower()).strip("_")
+    if not base:
+        base = "cat"
+    key = f"custom_{base}"
+    existing = existing_keys or set()
+    if key not in existing:
+        return key
+    i = 2
+    while f"{key}_{i}" in existing:
+        i += 1
+    return f"{key}_{i}"
+
+
 def map_to_category(image_type: str = "", detected_category: str = "",
                     has_mannequin: bool = False, is_label_cut: bool = False,
-                    barcode_number: str = "") -> str:
+                    barcode_number: str = "",
+                    custom_categories: list = None) -> str:
     """Vision 결과 → 복합 카테고리 키.
 
     우선순위:
@@ -68,6 +95,14 @@ def map_to_category(image_type: str = "", detected_category: str = "",
         return "barcode"
     if is_label_cut:
         return "label"
+
+    # 사용자 정의 커스텀 카테고리 (Vision detected_category 값으로 매칭)
+    # 빌트인보다 우선 — 사용자가 명시한 세부 분류가 더 구체적
+    for c in (custom_categories or []):
+        match_val = str(c.get("match_detected_category", "")).strip().lower()
+        if match_val and detected_category == match_val:
+            return c.get("key", "")
+
     if detected_category == "jewelry":
         return "jewelry"
     if image_type == "worn":
