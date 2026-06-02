@@ -1579,7 +1579,8 @@ class ImageEditPipeline:
     def analyze_only(self, image_path: str, category: str,
                      img: "np.ndarray | None" = None,
                      pre_cropped: bool = False,
-                     on_log: Callable = None) -> EditInstruction:
+                     on_log: Callable = None,
+                     custom_categories: list = None) -> EditInstruction:
         _log = on_log or (lambda msg, tag="info": logger.info(msg))
 
         _log(f"이미지 분석 시작: {Path(image_path).name}")
@@ -1592,7 +1593,8 @@ class ImageEditPipeline:
 
         system_prompt = self._prompt_builder.build_system_prompt()
         user_prompt = self._prompt_builder.build_analysis_prompt(
-            category_list=category_list
+            category_list=category_list,
+            custom_categories=custom_categories,
         )
 
         # Vision 프로바이더별 설정
@@ -4841,8 +4843,14 @@ class ImageEditPipeline:
             # 1. Vision 분류 (image_type + background)
             _log("  [Vision] 이미지 분류 중...")
             barcode_number = ""
+            matched_custom_category = ""
+            _custom_cats_for_vision = None
+            if isinstance(routing_rules, dict) and routing_rules.get("version") == 2:
+                _custom_cats_for_vision = routing_rules.get("custom_categories")
             try:
-                instruction = self.analyze_only(image_path, category="", on_log=_log)
+                instruction = self.analyze_only(
+                    image_path, category="", on_log=_log,
+                    custom_categories=_custom_cats_for_vision)
                 image_type = instruction.image_type   # full / detail / package / worn
                 background = instruction.background   # clean / colored / gradient ...
                 shooting_angle = instruction.shooting_angle  # front / top_down / side / ...
@@ -4850,6 +4858,7 @@ class ImageEditPipeline:
                 has_mannequin = instruction.has_mannequin  # 마네킹 여부
                 detected_category = instruction.detected_category.lower()  # jewelry, bag, ...
                 barcode_number = instruction.barcode_number  # EAN-13 바코드 (감지 시)
+                matched_custom_category = instruction.matched_custom_category  # Vision 판단 커스텀 키
             except Exception as ve:
                 import traceback as _tb
                 _log(f"  Vision 분류 실패 → full/clean 으로 가정: {ve}", "warn")
@@ -4906,6 +4915,7 @@ class ImageEditPipeline:
                     is_label_cut=is_label_cut,
                     barcode_number=barcode_number,
                     custom_categories=routing_rules.get("custom_categories"),
+                    matched_custom_category=matched_custom_category,
                 )
                 verdict = evaluate_v2(routing_rules, category,
                                       shooting_angle=shooting_angle,

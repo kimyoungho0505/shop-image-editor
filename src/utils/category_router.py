@@ -78,7 +78,8 @@ def slugify_category(label: str, existing_keys: set = None) -> str:
 def map_to_category(image_type: str = "", detected_category: str = "",
                     has_mannequin: bool = False, is_label_cut: bool = False,
                     barcode_number: str = "",
-                    custom_categories: list = None) -> str:
+                    custom_categories: list = None,
+                    matched_custom_category: str = "") -> str:
     """Vision 결과 → 복합 카테고리 키.
 
     우선순위:
@@ -102,8 +103,14 @@ def map_to_category(image_type: str = "", detected_category: str = "",
     if is_label_cut:
         return "label"
 
-    # 사용자 정의 커스텀 카테고리 (Vision detected_category 값으로 매칭)
-    # 빌트인보다 우선 — 사용자가 명시한 세부 분류가 더 구체적
+    # 사용자 정의 커스텀 카테고리 — 빌트인보다 우선
+    # 1순위: Vision이 의미로 판단해 직접 반환한 키 (matched_custom_category)
+    mcc = (matched_custom_category or "").strip()
+    if mcc:
+        for c in (custom_categories or []):
+            if c.get("key") == mcc:
+                return mcc
+    # 2순위(레거시 폴백): detected_category 정확 일치
     for c in (custom_categories or []):
         match_val = str(c.get("match_detected_category", "")).strip().lower()
         if match_val and detected_category == match_val:

@@ -22,11 +22,15 @@ class PromptBuilder:
         """시스템 프롬프트를 반환한다."""
         return self._prompts["analysis"]["system"].strip()
 
-    def build_analysis_prompt(self, category_list: list = None) -> str:
+    def build_analysis_prompt(self, category_list: list = None,
+                              custom_categories: list = None) -> str:
         """이미지 분류용 사용자 프롬프트를 생성한다.
 
         Args:
             category_list: 사용 가능한 카테고리 목록 [{id, display_name}, ...]
+            custom_categories: 사용자 정의 카테고리 목록
+                [{key, label, description}, ...] — Vision이 이미지가 이 중
+                어디에 해당하는지 직접 판단하여 matched_custom_category로 반환.
 
         Returns:
             완성된 사용자 프롬프트 문자열
@@ -42,6 +46,33 @@ class PromptBuilder:
                 f"Use one of these for the \"category\" field if applicable, "
                 f"or suggest a new category ID (lowercase_snake_case) with a Korean display name."
             )
+
+        if custom_categories:
+            lines = []
+            for c in custom_categories:
+                key = c.get("key", "")
+                label = c.get("label", "")
+                desc = (c.get("description") or "").strip()
+                if not key:
+                    continue
+                line = f'  - "{key}": {label}'
+                if desc:
+                    line += f" — {desc}"
+                lines.append(line)
+            if lines:
+                cats_block = "\n".join(lines)
+                prompt += (
+                    "\n\nUser-defined custom categories (decide by meaning, "
+                    "not exact wording):\n"
+                    f"{cats_block}\n"
+                    "Look at the product in the image and decide whether it "
+                    "semantically belongs to ONE of the custom categories above. "
+                    "Add a field \"matched_custom_category\" to your JSON output: "
+                    "set it to the matching key (e.g. \"" + lines[0].split('"')[1] + "\") "
+                    "if the product clearly fits one of them, otherwise set it to "
+                    "an empty string \"\". Judge by what the product actually is, "
+                    "tolerating synonyms and spelling differences."
+                )
 
         logger.debug("분류 프롬프트 생성 완료")
         return prompt

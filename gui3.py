@@ -1001,12 +1001,13 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         var_new_name = tk.StringVar()
         ttk.Entry(nf, textvariable=var_new_name, width=22,
                   font=(FONT_FAMILY, 10)).grid(row=0, column=1, sticky="w", pady=2)
-        tk.Label(nf, text="감지값(category):", bg=CARD_BG, fg="#374151",
+        tk.Label(nf, text="설명(힌트):", bg=CARD_BG, fg="#374151",
                  font=(FONT_FAMILY, 9), width=12, anchor="w").grid(row=1, column=0, sticky="w", pady=2)
         var_new_match = tk.StringVar()
         ttk.Entry(nf, textvariable=var_new_match, width=22,
                   font=(FONT_FAMILY, 10)).grid(row=1, column=1, sticky="w", pady=2)
-        tk.Label(nf, text="예: shoes, watch, bag — Vision이 감지한 카테고리 값과 일치 시 적용",
+        tk.Label(nf, text="예: '운동화·스니커즈류', '명품 시계' — Vision이 이름+설명을 읽고\n"
+                          "이미지가 의미상 이 카테고리에 해당하는지 직접 판단합니다 (철자/표현 차이 무관).",
                  bg=CARD_BG, fg="#9ca3af", font=(FONT_FAMILY, 8),
                  wraplength=320, justify="left").grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
@@ -1028,17 +1029,17 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             from src.utils.category_router import slugify_category as _slug
             if mode.get() == "new":
                 name = var_new_name.get().strip()
-                match = var_new_match.get().strip()
-                if not name or not match:
+                desc = var_new_match.get().strip()
+                if not name:
                     messagebox.showwarning("입력 필요",
-                                           "새 카테고리의 이름과 감지값을 모두 입력하세요.",
+                                           "새 카테고리의 이름을 입력하세요.",
                                            parent=dlg)
                     return
                 existing_keys = set(all_keys)
                 new_key = _slug(name, existing_keys)
                 custom_cats.append({
                     "key": new_key, "label": name,
-                    "match_detected_category": match.lower(),
+                    "description": desc,
                 })
                 cat_key = new_key
             else:

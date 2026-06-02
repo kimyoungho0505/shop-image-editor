@@ -36,6 +36,7 @@ class EditInstruction:
     notes: str = ""
     is_label_cut: bool = False  # 바코드/모델명/태그 확대 컷 → 누끼·보정 불필요
     barcode_number: str = ""  # 13자리 EAN-13 바코드 번호 (감지된 경우만)
+    matched_custom_category: str = ""  # Vision이 판단한 사용자 정의 카테고리 키
 
     def summary(self) -> str:
         parts = [f"유형: {self.image_type}", f"배경: {self.background}"]
@@ -197,6 +198,7 @@ class ResultParser:
             notes=str(data.get("notes", "")),
             is_label_cut=bool(data.get("is_label_cut", False)),
             barcode_number=self._parse_barcode_number(data.get("barcode_number")),
+            matched_custom_category=str(data.get("matched_custom_category", "") or "").strip(),
         )
 
         logger.info(f"분류 결과 파싱 완료: {instruction.summary()}")
