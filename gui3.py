@@ -1180,8 +1180,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             lock.pack(fill="x", padx=4, pady=(0, 4))
 
             # 1행: 자물쇠 + 카테고리명 + 감지조건 설명
-            head = tk.Frame(lock, bg=LOCK_BG, padx=12, pady=(6, 2))
-            head.pack(fill="x")
+            head = tk.Frame(lock, bg=LOCK_BG, padx=12, pady=2)
+            head.pack(fill="x", pady=(4, 0))
             tk.Label(head, text="\U0001f512", bg=LOCK_BG, fg=LOCK_FG,
                      font=(FONT_FAMILY, 10)).pack(side="left", padx=(0, 6))
             tk.Label(head, text=lbl, bg=LOCK_BG, fg="#374151",
@@ -1191,8 +1191,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                          font=(FONT_FAMILY, 8)).pack(side="left", padx=(6, 0))
 
             # 2행: 동작(제외/처리) + 처리 체크박스
-            ar = tk.Frame(lock, bg=LOCK_BG, padx=34, pady=(0, 6))
-            ar.pack(fill="x")
+            ar = tk.Frame(lock, bg=LOCK_BG, padx=34, pady=2)
+            ar.pack(fill="x", pady=(0, 4))
             tk.Label(ar, text="\ub3d9\uc791:", bg=LOCK_BG, fg="#374151",
                      font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 4))
             cur_action = r.get("action", "exclude")
