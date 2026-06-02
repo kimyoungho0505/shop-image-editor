@@ -252,6 +252,10 @@ class MultiSizeResizer:
         설정: v["use_photoroom"] = True/False (settings.yaml crop_vertical)
         """
         sub = v.get("subfolder", "860")
+        # 레거시 설정 자동 교정: 예전 버전은 crop을 별도 'crop/' 폴더에 저장했음.
+        # 사용자 폴더의 오래된 settings.yaml이 'crop'으로 남아 있으면 '860'으로 강제.
+        if sub == "crop":
+            sub = "860"
         fname = v.get("filename", "100_list.jpg")
         dest = self.output_dir / sub / fname
 
@@ -367,7 +371,10 @@ class MultiSizeResizer:
 
         if variants.get("crop") and v_cfg.get("crop_vertical", {}).get("enabled", True):
             v = v_cfg["crop_vertical"]
-            dest = self.output_dir / v.get("subfolder", "860") / v.get("filename", "100_list.jpg")
+            _sub = v.get("subfolder", "860")
+            if _sub == "crop":   # 레거시 설정 교정
+                _sub = "860"
+            dest = self.output_dir / _sub / v.get("filename", "100_list.jpg")
             if dest.exists() and not overwrite:
                 logger.info(f"[Resizer] 스킵(덮어쓰기 OFF): {dest}")
             else:
