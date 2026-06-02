@@ -1180,83 +1180,61 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         for idx, rule in enumerate(v2.get("priority_rules", [])):
             color = COLORS[idx % len(COLORS)]
             card = tk.Frame(self._cond_inner, bg=CARD_BG, relief="solid", bd=1)
-            card.pack(fill="x", padx=4, pady=(0, 8))
+            card.pack(fill="x", padx=4, pady=(0, 3))
 
-            tk.Frame(card, bg=color, height=3).pack(fill="x")
-            header = tk.Frame(card, bg=CARD_BG, padx=10, pady=6)
-            header.pack(fill="x")
+            # 좌측 우선순위 색 바
+            tk.Frame(card, bg=color, width=4).pack(side="left", fill="y")
 
-            tk.Label(header, text=f"\uc6b0\uc120\uc21c\uc704 {idx+1}", bg=CARD_BG, fg=color,
-                     font=(FONT_FAMILY, 8, "bold"), width=8,
-                     anchor="w").pack(side="left")
-            tk.Label(header, text="\uce74\ud14c\uace0\ub9ac:", bg=CARD_BG, fg="#374151",
-                     font=(FONT_FAMILY, 9)).pack(side="left", padx=(4, 2))
+            row = tk.Frame(card, bg=CARD_BG, padx=6, pady=4)
+            row.pack(fill="x")
 
+            # 우선순위 번호
+            tk.Label(row, text=f"{idx+1}", bg=color, fg="white",
+                     font=(FONT_FAMILY, 9, "bold"), width=2).pack(side="left", padx=(0, 6))
+
+            # 카테고리 콤보
             cur_key = rule.get("category", SORTABLE_CATEGORIES[0])
-            cur_label = _key_label(cur_key)
-            var_cat = tk.StringVar(value=cur_label)
-            ttk.Combobox(header, textvariable=var_cat, values=sortable_labels,
-                         width=14, state="readonly",
-                         font=(FONT_FAMILY, 9)).pack(side="left")
+            var_cat = tk.StringVar(value=_key_label(cur_key))
+            ttk.Combobox(row, textvariable=var_cat, values=sortable_labels,
+                         width=12, state="readonly",
+                         font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 8))
 
-            def _make_move(i, d): return lambda: self._move_routing_rule(i, d)
-            def _make_del(i):     return lambda: self._delete_routing_rule(i)
-            ttk.Button(header, text="\u2191", width=2,
-                       command=_make_move(idx, -1)).pack(side="right", padx=(2, 0))
-            ttk.Button(header, text="\u2193", width=2,
-                       command=_make_move(idx, 1)).pack(side="right", padx=(2, 0))
-            ttk.Button(header, text="\u2715", width=2,
-                       command=_make_del(idx)).pack(side="right", padx=(8, 0))
-
-            body = tk.Frame(card, bg=CARD_BG, padx=12, pady=4)
-            body.pack(fill="x")
-
-            # \u2500\u2500 \uc138\ubd80\uc870\uac74 \u2500\u2500
-            cond_lf = tk.LabelFrame(body, text=" \uc138\ubd80 \uc870\uac74 ",
-                                    bg=CARD_BG, fg="#6b7280",
-                                    font=(FONT_FAMILY, 8, "bold"), padx=8, pady=4)
-            cond_lf.pack(fill="x", pady=(0, 6))
-            cond_row = tk.Frame(cond_lf, bg=CARD_BG)
-            cond_row.pack(fill="x")
-
-            var_sa = tk.StringVar(value=rule.get("shooting_angle", "any"))
-            tk.Label(cond_row, text="\ucd2c\uc601\uac01\ub3c4:", bg=CARD_BG, fg="#374151",
-                     font=(FONT_FAMILY, 9)).grid(row=0, column=0, sticky="w",
-                                                 padx=(0, 4), pady=2)
-            ttk.Combobox(cond_row, textvariable=var_sa,
-                         values=["any", "top_down", "front", "side"],
-                         width=9, state="readonly",
-                         font=(FONT_FAMILY, 9)).grid(row=0, column=1, sticky="w",
-                                                     padx=(0, 16), pady=2)
-
-            var_bt = tk.StringVar(value=rule.get("background_type", "any"))
-            tk.Label(cond_row, text="\ubc30\uacbd:", bg=CARD_BG, fg="#374151",
-                     font=(FONT_FAMILY, 9)).grid(row=0, column=2, sticky="w",
-                                                 padx=(0, 4), pady=2)
-            ttk.Combobox(cond_row, textvariable=var_bt,
-                         values=["any", "clean", "colored"],
-                         width=9, state="readonly",
-                         font=(FONT_FAMILY, 9)).grid(row=0, column=3, sticky="w",
-                                                     padx=(0, 16), pady=2)
-
-            # \u2500\u2500 \ucc98\ub9ac \u2500\u2500
-            proc_lf = tk.LabelFrame(body, text=" \ucc98\ub9ac ",
-                                    bg=CARD_BG, fg="#6b7280",
-                                    font=(FONT_FAMILY, 8, "bold"), padx=8, pady=4)
-            proc_lf.pack(fill="x", pady=(0, 4))
-            proc_row = tk.Frame(proc_lf, bg=CARD_BG)
-            proc_row.pack(anchor="w")
-
+            # 처리 체크박스 (한 줄)
             var_nukki = tk.BooleanVar(value=rule.get("nukki", True))
             var_shadow = tk.BooleanVar(value=rule.get("shadow", False))
             var_enhance = tk.BooleanVar(value=rule.get("enhance", True))
-            for col, (txt, var) in enumerate([
-                ("\ub204\ub07c (\ubc30\uacbd\uc81c\uac70)", var_nukki),
-                ("\uadf8\ub9bc\uc790", var_shadow),
-                ("\ubcf4\uc815 (Claid)", var_enhance),
-            ]):
-                ttk.Checkbutton(proc_row, text=txt, variable=var).grid(
-                    row=0, column=col, padx=(0, 20), pady=2, sticky="w")
+            ttk.Checkbutton(row, text="누끼",
+                            variable=var_nukki).pack(side="left", padx=(0, 1))
+            ttk.Checkbutton(row, text="그림자",
+                            variable=var_shadow).pack(side="left", padx=(0, 1))
+            ttk.Checkbutton(row, text="보정",
+                            variable=var_enhance).pack(side="left", padx=(0, 6))
+
+            # 우측 조작 버튼
+            def _make_move(i, d): return lambda: self._move_routing_rule(i, d)
+            def _make_del(i):     return lambda: self._delete_routing_rule(i)
+            ttk.Button(row, text="✕", width=2,
+                       command=_make_del(idx)).pack(side="right", padx=(6, 0))
+            ttk.Button(row, text="↓", width=2,
+                       command=_make_move(idx, 1)).pack(side="right", padx=(1, 0))
+            ttk.Button(row, text="↑", width=2,
+                       command=_make_move(idx, -1)).pack(side="right", padx=(1, 0))
+
+            # 세부조건 (각도/배경) — 우측 컴팩트
+            var_sa = tk.StringVar(value=rule.get("shooting_angle", "any"))
+            var_bt = tk.StringVar(value=rule.get("background_type", "any"))
+            ttk.Combobox(row, textvariable=var_bt,
+                         values=["any", "clean", "colored"],
+                         width=7, state="readonly",
+                         font=(FONT_FAMILY, 8)).pack(side="right", padx=(0, 6))
+            tk.Label(row, text="배경", bg=CARD_BG, fg="#9ca3af",
+                     font=(FONT_FAMILY, 8)).pack(side="right", padx=(0, 2))
+            ttk.Combobox(row, textvariable=var_sa,
+                         values=["any", "top_down", "front", "side"],
+                         width=8, state="readonly",
+                         font=(FONT_FAMILY, 8)).pack(side="right", padx=(0, 4))
+            tk.Label(row, text="각도", bg=CARD_BG, fg="#9ca3af",
+                     font=(FONT_FAMILY, 8)).pack(side="right", padx=(0, 2))
 
             self._cond_cards.append({
                 "var_category_key": (lambda v=var_cat, m=label_to_key:
