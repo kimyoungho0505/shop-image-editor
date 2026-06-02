@@ -9,27 +9,49 @@ from typing import Optional
 
 
 class PhotoroomClient:
-    """Photoroom API를 통한 배경 제거, 센터링, 그림자 생성."""
+    """Photoroom API를 통한 배경 제거, 센터링, 그림자 생성.
 
-    API_URL = "https://image-api.photoroom.com/v2/edit"
+    두 가지 API를 비용에 따라 분기 사용:
+    - Remove Background API (v1/segment): 배경 제거만. 저렴 (Basic 단가, Plus 기준 0.2장)
+    - Image Editing API (v2/edit): 그림자/AI배경 등. 비쌈 (1장 = Basic 5장)
+    그림자가 필요 없으면 v1/segment를 써서 비용을 1/5로 절감한다.
+    """
+
+    # Image Editing API (그림자/AI배경 — 비쌈)
+    EDIT_URL = "https://image-api.photoroom.com/v2/edit"
+    # Remove Background API (배경제거만 — 저렴)
+    SEGMENT_URL = "https://sdk.photoroom.com/v1/segment"
+    # 하위 호환용 별칭
+    API_URL = EDIT_URL
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("PHOTOROOM_API_KEY", "")
         if not self.api_key:
             logger.warning("PHOTOROOM_API_KEY가 설정되지 않았습니다")
 
-    def _call_api(self, image_bytes: bytes, params: dict) -> bytes:
-        """Photoroom API 호출하여 처리된 이미지 바이트를 반환."""
+    def _call_api(self, image_bytes: bytes, params: dict,
+                  url: Optional[str] = None,
+                  file_field: str = "imageFile") -> bytes:
+        """Photoroom API 호출하여 처리된 이미지 바이트를 반환.
+
+        Args:
+            url: 호출할 엔드포인트 (기본 v2/edit)
+            file_field: 멀티파트 파일 필드명
+                        v2/edit → "imageFile", v1/segment → "image_file"
+        """
+        target_url = url or self.EDIT_URL
         headers = {"x-api-key": self.api_key}
 
-        logger.info(f"Photoroom API 호출 중... (파라미터: {params})")
+        api_name = "Remove BG(v1/segment)" if target_url == self.SEGMENT_URL \
+            else "Image Editing(v2/edit)"
+        logger.info(f"Photoroom {api_name} 호출 중... (파라미터: {params})")
 
         max_retries = 3
         for attempt in range(1, max_retries + 1):
-            files = {"imageFile": ("image.jpg", image_bytes, "image/jpeg")}
+            files = {file_field: ("image.jpg", image_bytes, "image/jpeg")}
 
             response = requests.post(
-                self.API_URL,
+                target_url,
                 headers=headers,
                 files=files,
                 data=params,
@@ -49,7 +71,7 @@ class PhotoroomClient:
             logger.error(error_msg)
             raise RuntimeError(error_msg)
 
-        logger.info(f"Photoroom API 완료 ({len(response.content)} bytes)")
+        logger.info(f"Photoroom {api_name} 완료 ({len(response.content)} bytes)")
         return response.content
 
     def _build_params(self, config: dict, output_size: str) -> dict:
@@ -136,10 +158,13 @@ class PhotoroomClient:
             "background.color": background_color,
             "export.format": "jpg",
         }
+        # outputSize/padding/scaling/referenceBox는 Image Editing API 기능 →
+        # v2/edit 사용 불가피 (1 이미지 과금). 크롭은 폴더당 1회만 호출됨.
         logger.info(
             f"Photoroom crop_to_aspect: outputSize={output_size}, "
-            f"padding={padding}, scaling=fit")
-        return self._call_api(image_bytes, params)
+            f"padding={padding}, scaling=fit → v2/edit")
+        return self._call_api(image_bytes, params,
+                              url=self.EDIT_URL, file_field="imageFile")
 
     def process(self, image_bytes: bytes, image_type: str, background: str,
                 output_size: str = "1000x1000",
@@ -158,6 +183,29 @@ class PhotoroomClient:
         if config is None:
             config = {}
 
+        shadow_mode = config.get("shadow.mode")
+
+        # ── 비용 분기 ──
+        # 그림자가 필요 없으면 저렴한 Remove Background API(v1/segment) 사용
+        # → 비용 1/5 (Plus 기준 0.2장 vs 1장)
+        if not shadow_mode:
+            seg_params = {
+                "format": config.get("export.format", "png"),
+            }
+            # 흰배경 합성은 후처리에서 하므로 기본 투명 PNG로 받음.
+            # 단, bg_color가 명시되면 그대로 전달.
+            bg_color = config.get("background.color")
+            if bg_color:
+                seg_params["bg_color"] = str(bg_color)
+            logger.info(
+                f"Photoroom 배경제거만 (유형: {image_type}) → v1/segment (저비용)")
+            return self._call_api(
+                image_bytes, seg_params,
+                url=self.SEGMENT_URL, file_field="image_file")
+
+        # 그림자 포함 → Image Editing API(v2/edit) 사용 (고비용)
         params = self._build_params(config, output_size)
-        logger.info(f"Photoroom 처리 (유형: {image_type}, 배경: {background})")
-        return self._call_api(image_bytes, params)
+        logger.info(
+            f"Photoroom 배경+그림자 (유형: {image_type}) → v2/edit (고비용)")
+        return self._call_api(image_bytes, params,
+                              url=self.EDIT_URL, file_field="imageFile")
