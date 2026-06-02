@@ -1,7 +1,37 @@
 # LUXBOY Shop Image Editor - 개발 히스토리
 
-> 마지막 업데이트: 2026-05-07 (14차)
+> 마지막 업데이트: 2026-06-02 (21차)
 > 다른 PC에서 이어서 개발할 때 이 문서를 참고하세요.
+
+---
+
+## 2026-06-02 (21차) — 카테고리 우선순위 라우팅 (조건 탭 전면 개편, C안)
+
+### 배경
+기존 라우팅은 무질서한 규칙 리스트 + 순서로만 분류 → 모순(전체컷 이름/조건 불일치,
+jewelry 중복 등)과 우선순위 모호성 문제. 카테고리 중심 우선순위 계층으로 재설계.
+
+### 신규 구조 (v2 스키마)
+- **복합 카테고리**: Vision 결과(image_type + detected_category + has_mannequin)를
+  조합 → barcode/label/jewelry/clothing_mannequin/clothing_model/clothing_flat/
+  bag_acc/detail/package/default 로 매핑
+- **3단 우선순위 계층**:
+  · 고정 상단: barcode → label (항상 최우선, 제외)
+  · 사용자 정렬: 카테고리 규칙 (↑↓로 순서 조정)
+  · 고정 하단: default 폴백 (항상 최후)
+
+### 신규 모듈
+- `src/utils/category_router.py`: map_to_category / default_rules_v2 /
+  migrate_v1_to_v2 / evaluate_v2
+- 22개 단위 테스트 (`tests/test_category_router.py`)
+
+### 변경
+- `src/pipeline.py`: v2 dict 감지 → 카테고리 라우터로 평가 (v1 list는 레거시 폴백)
+  · barcode/label 카테고리는 즉시 제외 반환
+- `gui3.py` 조건 탭: 3단 계층 UI (고정 잠금 카드 + 우선순위 카드 + ↑↓ 정렬)
+  · 이미지종류 → 카테고리 콤보박스(한글 표시)로 승격 (1차 분류 축)
+  · v1 yaml 자동 마이그레이션, 중복 카테고리 경고
+- `config/routing_rules.yaml`: 깨끗한 v2 기본 규칙으로 재작성
 
 ---
 

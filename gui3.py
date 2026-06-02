@@ -720,7 +720,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         # 설명
         tk.Label(parent,
-                 text="조건은 위에서부터 순서대로 평가되며, 처음 일치하는 규칙이 적용됩니다. 조건을 비워두면 나머지 모든 이미지에 적용됩니다.",
+                 text="카테고리 우선순위 순서대로 평가됩니다. 상단 잠금(바코드/라벨)은 항상 최우선 제외, 하단 기본 폴백은 나머지 모든 컷에 적용됩니다.",
                  bg=BG_COLOR, fg="#6b7280", font=(FONT_FAMILY, 9), justify="left"
                  ).pack(fill="x", padx=14, pady=(0, 6))
 
@@ -891,235 +891,299 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                             f"image-2.0 프롬프트 ({cat})가 저장되었습니다.")
 
     def _load_routing_rules(self):
-        """config/routing_rules.yaml 로드. 없으면 기본값 반환."""
+        """config/routing_rules.yaml \ub85c\ub4dc \u2192 v2 \uc2a4\ud0a4\ub9c8 dict \ubc18\ud658."""
         import yaml as _yaml
+        from src.utils.category_router import migrate_v1_to_v2, default_rules_v2
         if ROUTING_RULES_PATH.exists():
             try:
                 with open(ROUTING_RULES_PATH, encoding="utf-8") as f:
                     data = _yaml.safe_load(f)
-                    return data.get("rules", self._default_routing_rules())
+                return migrate_v1_to_v2(data)
             except Exception:
                 pass
-        return self._default_routing_rules()
+        return default_rules_v2()
 
     def _default_routing_rules(self):
-        return [
-            {"id": "label_skip",       "name": "라벨/바코드컷",
-             "conditions": {"is_label_cut": True},
-             "processing": {"nukki": False, "shadow": False, "enhance": False}},
-            {"id": "top_down_only",    "name": "수직촬영(탑다운)",
-             "conditions": {"shooting_angle": "top_down"},
-             "processing": {"nukki": False, "shadow": False, "enhance": True}},
-            {"id": "detail_clean_bg",  "name": "디테일컷 (흰/깨끗한 배경)",
-             "conditions": {"image_type": "detail", "background_type": "clean"},
-             "processing": {"nukki": True, "shadow": False, "enhance": True}},
-            {"id": "detail_colored_bg","name": "디테일컷 (유색 배경)",
-             "conditions": {"image_type": "detail", "background_type": "colored"},
-             "processing": {"nukki": False, "shadow": False, "enhance": True}},
-            {"id": "full_shot",        "name": "전체컷 (기본)",
-             "conditions": {},
-             "processing": {"nukki": True, "shadow": True, "enhance": True}},
-        ]
+        from src.utils.category_router import default_rules_v2
+        return default_rules_v2()
 
     def _save_routing_rules(self):
-        """현재 UI 상태를 routing_rules.yaml에 저장."""
+        """\ud604\uc7ac UI \uc0c1\ud0dc(v2 dict)\ub97c routing_rules.yaml\uc5d0 \uc800\uc7a5."""
         import yaml as _yaml
-        rules = self._collect_routing_rules_from_ui()
-        self._routing_rules_data = rules
+        from src.utils.category_router import CATEGORY_LABELS
+        v2 = self._collect_routing_rules_from_ui()
+        self._routing_rules_data = v2
+
+        # \uc911\ubcf5 \uce74\ud14c\uace0\ub9ac \uac80\uc0ac
+        seen = {}
+        dups = []
+        for r in v2.get("priority_rules", []):
+            c = r.get("category")
+            seen[c] = seen.get(c, 0) + 1
+        for c, n in seen.items():
+            if n > 1:
+                dups.append(CATEGORY_LABELS.get(c, c))
+
         try:
             ROUTING_RULES_PATH.parent.mkdir(parents=True, exist_ok=True)
             with open(ROUTING_RULES_PATH, "w", encoding="utf-8") as f:
-                _yaml.dump({"rules": rules}, f, allow_unicode=True, default_flow_style=False)
-            self.cond_status.config(text="✓ 저장됨", foreground="#16a34a")
-            self.after(2000, lambda: self.cond_status.config(text=""))
+                _yaml.dump(v2, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            if dups:
+                self.cond_status.config(
+                    text="\u26a0\ufe0f \uc911\ubcf5 \uce74\ud14c\uace0\ub9ac: " + ", ".join(dups),
+                    foreground="#ca8a04")
+            else:
+                self.cond_status.config(text="\u2713 \uc800\uc7a5\ub428", foreground="#16a34a")
+                self.after(2000, lambda: self.cond_status.config(text=""))
         except Exception as e:
-            self.cond_status.config(text=f"저장 실패: {e}", foreground="red")
+            self.cond_status.config(text=f"\uc800\uc7a5 \uc2e4\ud328: {e}", foreground="red")
 
     def _reset_routing_rules(self):
-        self._routing_rules_data = self._default_routing_rules()
+        from src.utils.category_router import default_rules_v2
+        self._routing_rules_data = default_rules_v2()
         self._render_routing_rules()
-        self.cond_status.config(text="기본값 복원됨", foreground="#6b7280")
+        self.cond_status.config(text="\uae30\ubcf8\uac12 \ubcf5\uc6d0\ub428", foreground="#6b7280")
         self.after(2000, lambda: self.cond_status.config(text=""))
 
     def _add_routing_rule(self):
-        rules = self._collect_routing_rules_from_ui()
-        rules.append({
-            "id": f"rule_{len(rules)+1}",
-            "name": "새 조건",
-            "conditions": {},
-            "processing": {"nukki": True, "shadow": False, "enhance": True}
+        from src.utils.category_router import SORTABLE_CATEGORIES
+        v2 = self._collect_routing_rules_from_ui()
+        used = {r.get("category") for r in v2.get("priority_rules", [])}
+        new_cat = next((c for c in SORTABLE_CATEGORIES if c not in used),
+                       SORTABLE_CATEGORIES[0])
+        v2.setdefault("priority_rules", []).append({
+            "category": new_cat, "nukki": True, "shadow": False, "enhance": True,
+            "shooting_angle": "any", "background_type": "any",
         })
-        self._routing_rules_data = rules
+        self._routing_rules_data = v2
         self._render_routing_rules()
-        # 스크롤 맨 아래로
         self._cond_canvas.after(50, lambda: self._cond_canvas.yview_moveto(1.0))
 
     def _collect_routing_rules_from_ui(self):
-        """현재 카드 UI에서 규칙 데이터 수집."""
-        rules = []
-        for card_data in self._cond_cards:
-            rule = {"id": card_data["id"]}
-            rule["name"] = card_data["var_name"].get().strip() or "규칙"
-            cond = {}
-            lc = card_data["var_is_label_cut"].get()
-            if lc == "예":   cond["is_label_cut"] = True
-            elif lc == "아니오": cond["is_label_cut"] = False
-            sa = card_data["var_shooting_angle"].get()
-            if sa != "any":  cond["shooting_angle"] = sa
-            it = card_data["var_image_type"].get()
-            if it != "any":  cond["image_type"] = it
-            bt = card_data["var_background_type"].get()
-            if bt != "any":  cond["background_type"] = bt
-            rule["conditions"] = cond
-            rule["processing"] = {
-                "nukki":   card_data["var_nukki"].get(),
-                "shadow":  card_data["var_shadow"].get(),
-                "enhance": card_data["var_enhance"].get(),
-            }
-            rules.append(rule)
-        return rules
+        """\ud604\uc7ac \uce74\ub4dc UI\uc5d0\uc11c v2 dict \uc218\uc9d1."""
+        priority = []
+        for cd in getattr(self, "_cond_cards", []):
+            priority.append({
+                "category": cd["var_category_key"](),
+                "nukki":   bool(cd["var_nukki"].get()),
+                "shadow":  bool(cd["var_shadow"].get()),
+                "enhance": bool(cd["var_enhance"].get()),
+                "shooting_angle": cd["var_shooting_angle"].get(),
+                "background_type": cd["var_background_type"].get(),
+            })
+        fb = getattr(self, "_cond_default_card", None)
+        if fb is not None:
+            fixed_bottom = [{
+                "category": "default",
+                "nukki":   bool(fb["var_nukki"].get()),
+                "shadow":  bool(fb["var_shadow"].get()),
+                "enhance": bool(fb["var_enhance"].get()),
+            }]
+        else:
+            fixed_bottom = [{"category": "default", "nukki": True,
+                             "shadow": True, "enhance": True}]
+        return {
+            "version": 2,
+            "fixed_top": [
+                {"category": "barcode", "action": "exclude"},
+                {"category": "label", "action": "exclude"},
+            ],
+            "priority_rules": priority,
+            "fixed_bottom": fixed_bottom,
+        }
 
     def _render_routing_rules(self):
-        """_cond_inner 프레임을 지우고 현재 _routing_rules_data로 카드 재렌더링."""
+        """_cond_inner\ub97c \uc9c0\uc6b0\uace0 v2 dict\ub85c 3\ub2e8 \uacc4\uce35 \uce74\ub4dc \uc7ac\ub80c\ub354\ub9c1."""
+        from src.utils.category_router import (
+            CATEGORY_LABELS, SORTABLE_CATEGORIES,
+        )
         for w in self._cond_inner.winfo_children():
             w.destroy()
         self._cond_cards = []
+        self._cond_default_card = None
 
-        COLORS = ["#3b82f6","#7c3aed","#16a34a","#d97706","#6b7280",
-                  "#ef4444","#0891b2","#db2777","#ca8a04","#059669"]
+        v2 = self._routing_rules_data
+        if not isinstance(v2, dict):
+            from src.utils.category_router import default_rules_v2
+            v2 = default_rules_v2()
+            self._routing_rules_data = v2
 
-        for idx, rule in enumerate(self._routing_rules_data):
+        LOCK_BG = "#e5e7eb"
+        LOCK_FG = "#6b7280"
+
+        # \ud55c\uae00\ud45c\uc2dc\uba85 \u2192 \ud0a4 \uc5ed\ub9f5\ud551 (\ucf64\ubcf4\ubc15\uc2a4\uc6a9)
+        sortable_labels = [CATEGORY_LABELS[k] for k in SORTABLE_CATEGORIES]
+        label_to_key = {CATEGORY_LABELS[k]: k for k in SORTABLE_CATEGORIES}
+
+        COLORS = ["#3b82f6", "#7c3aed", "#16a34a", "#d97706",
+                  "#ef4444", "#0891b2", "#db2777", "#ca8a04", "#059669"]
+
+        # ===== 1. \uace0\uc815 \uc0c1\ub2e8 (barcode/label \uc81c\uc678) =====
+        tk.Label(self._cond_inner, text="\U0001f512 \ud56d\uc0c1 \ucd5c\uc6b0\uc120 (\uc81c\uc678)",
+                 bg=BG_COLOR, fg=LOCK_FG,
+                 font=(FONT_FAMILY, 9, "bold")).pack(anchor="w", padx=6, pady=(2, 2))
+        for r in v2.get("fixed_top", []):
+            cat = r.get("category", "")
+            lbl = CATEGORY_LABELS.get(cat, cat)
+            lock = tk.Frame(self._cond_inner, bg=LOCK_BG, relief="solid", bd=1)
+            lock.pack(fill="x", padx=4, pady=(0, 4))
+            row = tk.Frame(lock, bg=LOCK_BG, padx=12, pady=6)
+            row.pack(fill="x")
+            tk.Label(row, text="\U0001f512", bg=LOCK_BG, fg=LOCK_FG,
+                     font=(FONT_FAMILY, 10)).pack(side="left", padx=(0, 6))
+            tk.Label(row, text=lbl, bg=LOCK_BG, fg="#374151",
+                     font=(FONT_FAMILY, 10, "bold")).pack(side="left")
+            tk.Label(row, text="\ucc98\ub9ac: \uc81c\uc678", bg=LOCK_BG, fg=LOCK_FG,
+                     font=(FONT_FAMILY, 9)).pack(side="right")
+
+        # ===== 2. \uc6b0\uc120\uc21c\uc704 \uc139\uc158 =====
+        tk.Label(self._cond_inner,
+                 text="\u2195\ufe0f \uc6b0\uc120\uc21c\uc704 \uaddc\uce59 (\uc704\uc5d0\uc11c\ubd80\ud130 \ud3c9\uac00)",
+                 bg=BG_COLOR, fg="#374151",
+                 font=(FONT_FAMILY, 9, "bold")).pack(anchor="w", padx=6, pady=(10, 2))
+
+        for idx, rule in enumerate(v2.get("priority_rules", [])):
             color = COLORS[idx % len(COLORS)]
             card = tk.Frame(self._cond_inner, bg=CARD_BG, relief="solid", bd=1)
             card.pack(fill="x", padx=4, pady=(0, 8))
 
-            # 상단 컬러 바 + 헤더 행
             tk.Frame(card, bg=color, height=3).pack(fill="x")
             header = tk.Frame(card, bg=CARD_BG, padx=10, pady=6)
             header.pack(fill="x")
 
-            tk.Label(header, text=f"우선순위 {idx+1}", bg=CARD_BG, fg=color,
-                     font=(FONT_FAMILY, 8, "bold"), width=8, anchor="w").pack(side="left")
-            tk.Label(header, text="이름:", bg=CARD_BG, fg="#374151",
+            tk.Label(header, text=f"\uc6b0\uc120\uc21c\uc704 {idx+1}", bg=CARD_BG, fg=color,
+                     font=(FONT_FAMILY, 8, "bold"), width=8,
+                     anchor="w").pack(side="left")
+            tk.Label(header, text="\uce74\ud14c\uace0\ub9ac:", bg=CARD_BG, fg="#374151",
                      font=(FONT_FAMILY, 9)).pack(side="left", padx=(4, 2))
-            var_name = tk.StringVar(value=rule.get("name", "규칙"))
-            ttk.Entry(header, textvariable=var_name, width=22,
-                      font=(FONT_FAMILY, 9)).pack(side="left")
 
-            # ↑ ↓ 삭제 버튼
+            cur_key = rule.get("category", SORTABLE_CATEGORIES[0])
+            cur_label = CATEGORY_LABELS.get(cur_key, sortable_labels[0])
+            var_cat = tk.StringVar(value=cur_label)
+            ttk.Combobox(header, textvariable=var_cat, values=sortable_labels,
+                         width=14, state="readonly",
+                         font=(FONT_FAMILY, 9)).pack(side="left")
+
             def _make_move(i, d): return lambda: self._move_routing_rule(i, d)
             def _make_del(i):     return lambda: self._delete_routing_rule(i)
-            ttk.Button(header, text="↑", width=2,
-                       command=_make_move(idx, -1)).pack(side="right", padx=(2,0))
-            ttk.Button(header, text="↓", width=2,
-                       command=_make_move(idx, 1)).pack(side="right", padx=(2,0))
-            ttk.Button(header, text="✕", width=2,
-                       command=_make_del(idx)).pack(side="right", padx=(8,0))
+            ttk.Button(header, text="\u2191", width=2,
+                       command=_make_move(idx, -1)).pack(side="right", padx=(2, 0))
+            ttk.Button(header, text="\u2193", width=2,
+                       command=_make_move(idx, 1)).pack(side="right", padx=(2, 0))
+            ttk.Button(header, text="\u2715", width=2,
+                       command=_make_del(idx)).pack(side="right", padx=(8, 0))
 
             body = tk.Frame(card, bg=CARD_BG, padx=12, pady=4)
             body.pack(fill="x")
 
-            # ── 조건 행 ──
-            cond_lf = tk.LabelFrame(body, text=" 조건 (모두 일치해야 함) ",
+            # \u2500\u2500 \uc138\ubd80\uc870\uac74 \u2500\u2500
+            cond_lf = tk.LabelFrame(body, text=" \uc138\ubd80 \uc870\uac74 ",
                                     bg=CARD_BG, fg="#6b7280",
                                     font=(FONT_FAMILY, 8, "bold"), padx=8, pady=4)
             cond_lf.pack(fill="x", pady=(0, 6))
             cond_row = tk.Frame(cond_lf, bg=CARD_BG)
             cond_row.pack(fill="x")
 
-            conds = rule.get("conditions", {})
-
-            # is_label_cut
-            var_lc = tk.StringVar()
-            if conds.get("is_label_cut") is True: var_lc.set("예")
-            elif conds.get("is_label_cut") is False: var_lc.set("아니오")
-            else: var_lc.set("any")
-            tk.Label(cond_row, text="라벨컷:", bg=CARD_BG, fg="#374151",
-                     font=(FONT_FAMILY, 9)).grid(row=0, column=0, sticky="w", padx=(0,4), pady=2)
-            ttk.Combobox(cond_row, textvariable=var_lc,
-                         values=["any", "예", "아니오"],
-                         width=7, state="readonly", font=(FONT_FAMILY, 9)
-                         ).grid(row=0, column=1, sticky="w", padx=(0,16), pady=2)
-
-            # shooting_angle
-            var_sa = tk.StringVar(value=conds.get("shooting_angle", "any"))
-            tk.Label(cond_row, text="촬영각도:", bg=CARD_BG, fg="#374151",
-                     font=(FONT_FAMILY, 9)).grid(row=0, column=2, sticky="w", padx=(0,4), pady=2)
+            var_sa = tk.StringVar(value=rule.get("shooting_angle", "any"))
+            tk.Label(cond_row, text="\ucd2c\uc601\uac01\ub3c4:", bg=CARD_BG, fg="#374151",
+                     font=(FONT_FAMILY, 9)).grid(row=0, column=0, sticky="w",
+                                                 padx=(0, 4), pady=2)
             ttk.Combobox(cond_row, textvariable=var_sa,
                          values=["any", "top_down", "front", "side"],
-                         width=9, state="readonly", font=(FONT_FAMILY, 9)
-                         ).grid(row=0, column=3, sticky="w", padx=(0,16), pady=2)
+                         width=9, state="readonly",
+                         font=(FONT_FAMILY, 9)).grid(row=0, column=1, sticky="w",
+                                                     padx=(0, 16), pady=2)
 
-            # image_type
-            var_it = tk.StringVar(value=conds.get("image_type", "any"))
-            tk.Label(cond_row, text="이미지종류:", bg=CARD_BG, fg="#374151",
-                     font=(FONT_FAMILY, 9)).grid(row=1, column=0, sticky="w", padx=(0,4), pady=2)
-            ttk.Combobox(cond_row, textvariable=var_it,
-                         values=["any", "full", "detail", "worn",
-                                 "mannequin", "model", "jewelry", "clothing",
-                                 "package"],
-                         width=10, state="readonly", font=(FONT_FAMILY, 9)
-                         ).grid(row=1, column=1, sticky="w", padx=(0,16), pady=2)
-
-            # background_type
-            var_bt = tk.StringVar(value=conds.get("background_type", "any"))
-            tk.Label(cond_row, text="배경:", bg=CARD_BG, fg="#374151",
-                     font=(FONT_FAMILY, 9)).grid(row=1, column=2, sticky="w", padx=(0,4), pady=2)
+            var_bt = tk.StringVar(value=rule.get("background_type", "any"))
+            tk.Label(cond_row, text="\ubc30\uacbd:", bg=CARD_BG, fg="#374151",
+                     font=(FONT_FAMILY, 9)).grid(row=0, column=2, sticky="w",
+                                                 padx=(0, 4), pady=2)
             ttk.Combobox(cond_row, textvariable=var_bt,
                          values=["any", "clean", "colored"],
-                         width=9, state="readonly", font=(FONT_FAMILY, 9)
-                         ).grid(row=1, column=3, sticky="w", padx=(0,16), pady=2)
+                         width=9, state="readonly",
+                         font=(FONT_FAMILY, 9)).grid(row=0, column=3, sticky="w",
+                                                     padx=(0, 16), pady=2)
 
-            # ── 처리 행 ──
-            proc_lf = tk.LabelFrame(body, text=" 처리 ",
+            # \u2500\u2500 \ucc98\ub9ac \u2500\u2500
+            proc_lf = tk.LabelFrame(body, text=" \ucc98\ub9ac ",
                                     bg=CARD_BG, fg="#6b7280",
                                     font=(FONT_FAMILY, 8, "bold"), padx=8, pady=4)
             proc_lf.pack(fill="x", pady=(0, 4))
             proc_row = tk.Frame(proc_lf, bg=CARD_BG)
             proc_row.pack(anchor="w")
 
-            proc = rule.get("processing", {})
-            var_nukki  = tk.BooleanVar(value=proc.get("nukki",   True))
-            var_shadow = tk.BooleanVar(value=proc.get("shadow",  False))
-            var_enhance= tk.BooleanVar(value=proc.get("enhance", True))
-
+            var_nukki = tk.BooleanVar(value=rule.get("nukki", True))
+            var_shadow = tk.BooleanVar(value=rule.get("shadow", False))
+            var_enhance = tk.BooleanVar(value=rule.get("enhance", True))
             for col, (txt, var) in enumerate([
-                ("누끼 (배경제거)", var_nukki),
-                ("그림자",          var_shadow),
-                ("보정 (Claid)",    var_enhance),
+                ("\ub204\ub07c (\ubc30\uacbd\uc81c\uac70)", var_nukki),
+                ("\uadf8\ub9bc\uc790", var_shadow),
+                ("\ubcf4\uc815 (Claid)", var_enhance),
             ]):
-                cb = ttk.Checkbutton(proc_row, text=txt, variable=var)
-                cb.grid(row=0, column=col, padx=(0, 20), pady=2, sticky="w")
+                ttk.Checkbutton(proc_row, text=txt, variable=var).grid(
+                    row=0, column=col, padx=(0, 20), pady=2, sticky="w")
 
-            # 카드 데이터 저장
             self._cond_cards.append({
-                "id": rule.get("id", f"rule_{idx}"),
-                "var_name": var_name,
-                "var_is_label_cut": var_lc,
+                "var_category_key": (lambda v=var_cat, m=label_to_key:
+                                     m.get(v.get(), SORTABLE_CATEGORIES[0])),
                 "var_shooting_angle": var_sa,
-                "var_image_type": var_it,
                 "var_background_type": var_bt,
                 "var_nukki": var_nukki,
                 "var_shadow": var_shadow,
                 "var_enhance": var_enhance,
             })
 
+        # ===== 3. \uace0\uc815 \ud558\ub2e8 (default \ud3f4\ubc31) =====
+        tk.Label(self._cond_inner, text="\U0001f512 \uae30\ubcf8 \ud3f4\ubc31",
+                 bg=BG_COLOR, fg=LOCK_FG,
+                 font=(FONT_FAMILY, 9, "bold")).pack(anchor="w", padx=6, pady=(10, 2))
+
+        fb_list = v2.get("fixed_bottom", [])
+        fb = fb_list[0] if fb_list else {"nukki": True, "shadow": True, "enhance": True}
+        dcard = tk.Frame(self._cond_inner, bg=LOCK_BG, relief="solid", bd=1)
+        dcard.pack(fill="x", padx=4, pady=(0, 8))
+        drow = tk.Frame(dcard, bg=LOCK_BG, padx=12, pady=6)
+        drow.pack(fill="x")
+        tk.Label(drow, text="\U0001f512", bg=LOCK_BG, fg=LOCK_FG,
+                 font=(FONT_FAMILY, 10)).pack(side="left", padx=(0, 6))
+        tk.Label(drow, text=CATEGORY_LABELS.get("default", "\uae30\ubcf8"),
+                 bg=LOCK_BG, fg="#374151",
+                 font=(FONT_FAMILY, 10, "bold")).pack(side="left", padx=(0, 16))
+
+        d_nukki = tk.BooleanVar(value=fb.get("nukki", True))
+        d_shadow = tk.BooleanVar(value=fb.get("shadow", True))
+        d_enhance = tk.BooleanVar(value=fb.get("enhance", True))
+        for txt, var in [
+            ("\ub204\ub07c", d_nukki),
+            ("\uadf8\ub9bc\uc790", d_shadow),
+            ("\ubcf4\uc815", d_enhance),
+        ]:
+            ttk.Checkbutton(drow, text=txt, variable=var).pack(
+                side="left", padx=(0, 16))
+        self._cond_default_card = {
+            "var_nukki": d_nukki,
+            "var_shadow": d_shadow,
+            "var_enhance": d_enhance,
+        }
+
         self._cond_inner.update_idletasks()
         self._cond_canvas.configure(scrollregion=self._cond_canvas.bbox("all"))
 
     def _move_routing_rule(self, idx, direction):
-        rules = self._collect_routing_rules_from_ui()
+        v2 = self._collect_routing_rules_from_ui()
+        pr = v2.get("priority_rules", [])
         new_idx = idx + direction
-        if 0 <= new_idx < len(rules):
-            rules[idx], rules[new_idx] = rules[new_idx], rules[idx]
-        self._routing_rules_data = rules
+        if 0 <= new_idx < len(pr):
+            pr[idx], pr[new_idx] = pr[new_idx], pr[idx]
+        self._routing_rules_data = v2
         self._render_routing_rules()
 
     def _delete_routing_rule(self, idx):
-        rules = self._collect_routing_rules_from_ui()
-        if len(rules) > 1:
-            rules.pop(idx)
-        self._routing_rules_data = rules
+        v2 = self._collect_routing_rules_from_ui()
+        pr = v2.get("priority_rules", [])
+        if 0 <= idx < len(pr):
+            pr.pop(idx)
+        self._routing_rules_data = v2
         self._render_routing_rules()
 
     def _build_settings_tab(self):

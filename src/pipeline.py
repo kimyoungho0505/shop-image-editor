@@ -4886,8 +4886,43 @@ class ImageEditPipeline:
 
             # 라우팅 규칙 평가
             do_nukki, do_shadow, do_enhance = None, None, None
-            if routing_rules:
-                bg_type = "clean" if is_clean_bg else "colored"
+            bg_type = "clean" if is_clean_bg else "colored"
+
+            # ── v2 스키마 (카테고리 우선순위) 우선 처리 ──
+            if isinstance(routing_rules, dict) and routing_rules.get("version") == 2:
+                from src.utils.category_router import map_to_category, evaluate_v2
+                category = map_to_category(
+                    image_type=image_type,
+                    detected_category=detected_category,
+                    has_mannequin=has_mannequin,
+                    is_label_cut=is_label_cut,
+                    barcode_number=barcode_number,
+                )
+                verdict = evaluate_v2(routing_rules, category,
+                                      shooting_angle=shooting_angle,
+                                      background_type=bg_type)
+                if verdict.get("exclude"):
+                    reason = "label_excluded" if category == "label" else "barcode_excluded"
+                    _log(f"  ⏭ 카테고리 '{category}' → 처리 제외", "warn")
+                    return {
+                        "success": True, "skipped": True,
+                        "skip_reason": reason,
+                        "barcode_number": barcode_number,
+                        "files": [], "path": image_path,
+                        "image_type": image_type, "background": background,
+                        "shooting_angle": shooting_angle,
+                        "is_label_cut": is_label_cut,
+                        "final_bytes": None,
+                        "original_stem": Path(image_path).stem,
+                    }
+                do_nukki = verdict["nukki"]
+                do_shadow = verdict["shadow"]
+                do_enhance = verdict["enhance"]
+                _log(f"  [라우팅v2] 카테고리='{category}' → "
+                     f"누끼={do_nukki} 그림자={do_shadow} 보정={do_enhance}")
+
+            # ── v1 스키마 (레거시 list) 폴백 ──
+            elif routing_rules:
                 for rule in routing_rules:
                     cond = rule.get("conditions", {})
                     if cond.get("is_label_cut") is True and not is_label_cut:
@@ -4899,19 +4934,15 @@ class ImageEditPipeline:
                     if "image_type" in cond:
                         cond_it = cond["image_type"]
                         if cond_it == "mannequin":
-                            # 마네킹컷: worn 이면서 has_mannequin=True
                             if image_type != "worn" or not has_mannequin:
                                 continue
                         elif cond_it == "model":
-                            # 모델컷: worn 이면서 has_mannequin=False (사람 모델)
                             if image_type != "worn" or has_mannequin:
                                 continue
                         elif cond_it == "jewelry":
-                            # 주얼리: category == "jewelry"
                             if detected_category != "jewelry":
                                 continue
                         elif cond_it == "clothing":
-                            # 의류: category == "clothing" (또는 worn 타입 — 옷이 입혀진 형태)
                             if detected_category != "clothing" and image_type != "worn":
                                 continue
                         elif cond_it != image_type:
