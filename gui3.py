@@ -3409,6 +3409,30 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         btn_barcode_list.pack(side="right")
         self._vf_btn_barcode_list = btn_barcode_list
 
+        # ── 체크박스 전체선택/해제 툴바 ──
+        check_bar = tk.Frame(left, bg=VF_BG)
+        check_bar.pack(fill="x", padx=10, pady=(0, 4))
+
+        def _check_all(state):
+            for v in getattr(self, "_vf_row_checks", {}).values():
+                try:
+                    v.set(state)
+                except Exception:
+                    pass
+
+        tk.Button(
+            check_bar, text="☑ 전체선택", command=lambda: _check_all(True),
+            font=(FONT_FAMILY, 8), bg=VF_CARD, fg=VF_TEXT,
+            activebackground=VF_ACCENT, activeforeground=VF_BG,
+            bd=0, padx=8, pady=2, cursor="hand2",
+        ).pack(side="left", padx=(0, 4))
+        tk.Button(
+            check_bar, text="☐ 전체해제", command=lambda: _check_all(False),
+            font=(FONT_FAMILY, 8), bg=VF_CARD, fg=VF_TEXT,
+            activebackground=VF_ACCENT, activeforeground=VF_BG,
+            bd=0, padx=8, pady=2, cursor="hand2",
+        ).pack(side="left")
+
         # 파일 리스트 영역
         list_frame = tk.Frame(left, bg=VF_BG)
         list_frame.pack(fill="both", expand=True, padx=4)
@@ -3434,10 +3458,48 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             list_canvas.itemconfig(_cw_id, width=event.width)
         list_canvas.bind("<Configure>", _sync_inner_width)
 
-        # 마우스 휠 스크롤
+        # 마우스 휠 스크롤 — 리스트 영역에 마우스가 있을 때 전역 바인딩
+        # (행/썸네일 등 자식 위젯 위에서도 휠이 캔버스로 전달되도록)
         def _on_mousewheel(event):
             list_canvas.yview_scroll(-1 * (event.delta // 120), "units")
-        list_canvas.bind("<MouseWheel>", _on_mousewheel)
+            return "break"
+        def _bind_wheel(_e=None):
+            list_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        def _unbind_wheel(_e=None):
+            list_canvas.unbind_all("<MouseWheel>")
+        list_canvas.bind("<Enter>", _bind_wheel)
+        list_canvas.bind("<Leave>", _unbind_wheel)
+        list_frame.bind("<Enter>", _bind_wheel)
+        list_frame.bind("<Leave>", _unbind_wheel)
+
+        # 선택된 행이 보이도록 캔버스 스크롤 (키보드 이동 시 사용)
+        def _ensure_row_visible(idx):
+            try:
+                info = None
+                for fn, ri in file_rows.items():
+                    if ri.get("idx") == idx:
+                        info = ri
+                        break
+                if not info:
+                    return
+                list_canvas.update_idletasks()
+                row_w = info["frame"]
+                # inner_frame 기준 행의 y 위치
+                ry = row_w.winfo_y()
+                rh = row_w.winfo_height()
+                total = inner_frame.winfo_height() or 1
+                top_frac = ry / total
+                bot_frac = (ry + rh) / total
+                view_top, view_bot = list_canvas.yview()
+                if top_frac < view_top:
+                    list_canvas.yview_moveto(max(0.0, top_frac))
+                elif bot_frac > view_bot:
+                    # 행 하단이 보이도록
+                    span = view_bot - view_top
+                    list_canvas.yview_moveto(max(0.0, bot_frac - span))
+            except Exception:
+                pass
+        self._vf_ensure_row_visible = _ensure_row_visible
 
         file_rows = {}
 
@@ -3795,6 +3857,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                             child.configure(bg=bg)
                         except Exception:
                             pass
+            # 선택 행이 화면에 보이도록 스크롤
+            try:
+                self._vf_ensure_row_visible(idx)
+            except Exception:
+                pass
 
         # 네비게이션
         nav = tk.Frame(left, bg=VF_BG)
@@ -5548,23 +5615,49 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             return
 
         # 멀티사이즈 재생성
+        # ⚠️ 100_list(크롭)는 폴더의 첫 이미지(seq_n==1)에서 생성되므로
+        # vf_idx가 아닌 seq_n으로 판단해야 함 (바코드/라벨컷이 앞 인덱스를
+        # 차지하면 메인컷의 vf_idx가 0이 아닐 수 있음 — 특정 PC 미갱신 원인)
+        crop_failed = False
         try:
             output_root = orig_path.parent.parent
             resizer = MultiSizeResizer(output_root, full_settings)
             seq_n = item.get("seq_n", vf_idx + 1)
-            is_first = (vf_idx == 0)
+            is_first = (seq_n == 1)
+            # 1500/860 먼저 재생성 (크롭과 분리 — 크롭 실패해도 영향 없도록)
             resizer.resize_from_file(
                 orig_path,
                 seq_n=seq_n,
-                variants={"size_1500": True, "size_860": True,
-                          "crop": is_first},
+                variants={"size_1500": True, "size_860": True, "crop": False},
                 overwrite=True,
             )
+            # 크롭(100_list)은 첫 이미지일 때만, 별도 try로 격리
+            if is_first:
+                try:
+                    resizer.resize_from_file(
+                        orig_path, seq_n=seq_n,
+                        variants={"size_1500": False, "size_860": False,
+                                  "crop": True},
+                        overwrite=True,
+                    )
+                    self._log_unified(
+                        f"  📐 100_list(크롭) 재생성 완료", "success")
+                except Exception as ce:
+                    crop_failed = True
+                    self._log_unified(
+                        f"  ⚠️ 100_list 크롭 재생성 실패: {ce}", "warning")
         except Exception as e:
             messagebox.showwarning(
                 "멀티사이즈 재생성 경고",
                 f"OUTPUT/original은 갱신되었지만 멀티사이즈 재생성 중 오류:\n{e}\n"
                 f"리사이징 탭에서 수동 재실행이 가능합니다.",
+                parent=self._vf_dlg)
+        if crop_failed:
+            messagebox.showwarning(
+                "100_list 갱신 실패",
+                "1500/860은 갱신됐으나 100_list(크롭) 재생성에 실패했습니다.\n"
+                "Photoroom 크레딧/네트워크를 확인하거나 리사이징 탭에서 "
+                "수동 재실행하세요.",
                 parent=self._vf_dlg)
 
         # 카드 상태 업데이트
