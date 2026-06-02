@@ -4858,8 +4858,16 @@ class ImageEditPipeline:
                 has_mannequin = False
                 detected_category = ""
 
-            # ── 바코드 스킵 규칙: 9로 시작하는 13자리 EAN-13 감지 시 전체 처리 제외 ──
-            if barcode_number and barcode_number.startswith("9") and len(barcode_number) == 13:
+            # ── 바코드 스킵 규칙: 9로 시작하는 13자리 EAN-13 감지 시 ──
+            # 조건설정에서 바코드 동작을 '처리'로 바꾼 경우엔 건너뛰지 않고 일반 처리로 진행
+            _barcode_detected = bool(barcode_number) and barcode_number.startswith("9") and len(barcode_number) == 13
+            _barcode_exclude = True
+            if _barcode_detected and isinstance(routing_rules, dict) and routing_rules.get("version") == 2:
+                for _ft in routing_rules.get("fixed_top", []):
+                    if _ft.get("category") == "barcode":
+                        _barcode_exclude = _ft.get("action", "exclude") == "exclude"
+                        break
+            if _barcode_detected and _barcode_exclude:
                 _log(f"  ⏭ 바코드 감지(9 시작 EAN-13: {barcode_number}) → 모든 처리 제외", "warn")
                 return {
                     "success": True,

@@ -1106,12 +1106,25 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         # priority에서 실제 사용 중인 커스텀만 유지 (삭제된 건 정리)
         used_keys = {r.get("category") for r in priority}
         custom_cats = [c for c in custom_cats if c.get("key") in used_keys]
-        return {
-            "version": 2,
-            "fixed_top": [
+        ft_cards = getattr(self, "_cond_fixed_top_cards", [])
+        if ft_cards:
+            fixed_top = []
+            for c in ft_cards:
+                act = "process" if c["var_action"].get() == "\ucc98\ub9ac" else "exclude"
+                entry = {"category": c["category"], "action": act}
+                if act == "process":
+                    entry["nukki"] = bool(c["var_nukki"].get())
+                    entry["shadow"] = bool(c["var_shadow"].get())
+                    entry["enhance"] = bool(c["var_enhance"].get())
+                fixed_top.append(entry)
+        else:
+            fixed_top = [
                 {"category": "barcode", "action": "exclude"},
                 {"category": "label", "action": "exclude"},
-            ],
+            ]
+        return {
+            "version": 2,
+            "fixed_top": fixed_top,
             "priority_rules": priority,
             "fixed_bottom": fixed_bottom,
             "custom_categories": custom_cats,
@@ -1120,11 +1133,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
     def _render_routing_rules(self):
         """_cond_inner\ub97c \uc9c0\uc6b0\uace0 v2 dict\ub85c 3\ub2e8 \uacc4\uce35 \uce74\ub4dc \uc7ac\ub80c\ub354\ub9c1."""
         from src.utils.category_router import (
-            CATEGORY_LABELS, SORTABLE_CATEGORIES,
+            CATEGORY_LABELS, SORTABLE_CATEGORIES, CATEGORY_DETECT_DESC,
         )
         for w in self._cond_inner.winfo_children():
             w.destroy()
         self._cond_cards = []
+        self._cond_fixed_top_cards = []
         self._cond_default_card = None
 
         v2 = self._routing_rules_data
@@ -1160,16 +1174,58 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         for r in v2.get("fixed_top", []):
             cat = r.get("category", "")
             lbl = CATEGORY_LABELS.get(cat, cat)
+            desc = CATEGORY_DETECT_DESC.get(cat, "")
             lock = tk.Frame(self._cond_inner, bg=LOCK_BG, relief="solid", bd=1)
             lock.pack(fill="x", padx=4, pady=(0, 4))
-            row = tk.Frame(lock, bg=LOCK_BG, padx=12, pady=6)
-            row.pack(fill="x")
-            tk.Label(row, text="\U0001f512", bg=LOCK_BG, fg=LOCK_FG,
+
+            # 1행: 자물쇠 + 카테고리명 + 감지조건 설명
+            head = tk.Frame(lock, bg=LOCK_BG, padx=12, pady=(6, 2))
+            head.pack(fill="x")
+            tk.Label(head, text="\U0001f512", bg=LOCK_BG, fg=LOCK_FG,
                      font=(FONT_FAMILY, 10)).pack(side="left", padx=(0, 6))
-            tk.Label(row, text=lbl, bg=LOCK_BG, fg="#374151",
+            tk.Label(head, text=lbl, bg=LOCK_BG, fg="#374151",
                      font=(FONT_FAMILY, 10, "bold")).pack(side="left")
-            tk.Label(row, text="\ucc98\ub9ac: \uc81c\uc678", bg=LOCK_BG, fg=LOCK_FG,
-                     font=(FONT_FAMILY, 9)).pack(side="right")
+            if desc:
+                tk.Label(head, text="  \u2022 " + desc, bg=LOCK_BG, fg=LOCK_FG,
+                         font=(FONT_FAMILY, 8)).pack(side="left", padx=(6, 0))
+
+            # 2행: 동작(제외/처리) + 처리 체크박스
+            ar = tk.Frame(lock, bg=LOCK_BG, padx=34, pady=(0, 6))
+            ar.pack(fill="x")
+            tk.Label(ar, text="\ub3d9\uc791:", bg=LOCK_BG, fg="#374151",
+                     font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 4))
+            cur_action = r.get("action", "exclude")
+            var_action = tk.StringVar(
+                value=("\uc81c\uc678" if cur_action == "exclude" else "\ucc98\ub9ac"))
+            var_n = tk.BooleanVar(value=r.get("nukki", True))
+            var_s = tk.BooleanVar(value=r.get("shadow", False))
+            var_e = tk.BooleanVar(value=r.get("enhance", True))
+            cb_n = ttk.Checkbutton(ar, text="\ub204\ub07c", variable=var_n)
+            cb_s = ttk.Checkbutton(ar, text="\uadf8\ub9bc\uc790", variable=var_s)
+            cb_e = ttk.Checkbutton(ar, text="\ubcf4\uc815", variable=var_e)
+
+            def _toggle_ft(*_a, v=var_action, c=(cb_n, cb_s, cb_e)):
+                st = "normal" if v.get() == "\ucc98\ub9ac" else "disabled"
+                for w in c:
+                    w.configure(state=st)
+
+            ttk.Combobox(ar, textvariable=var_action,
+                         values=["\uc81c\uc678", "\ucc98\ub9ac"], width=6,
+                         state="readonly",
+                         font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 12))
+            cb_n.pack(side="left", padx=(0, 2))
+            cb_s.pack(side="left", padx=(0, 2))
+            cb_e.pack(side="left", padx=(0, 2))
+            var_action.trace_add("write", _toggle_ft)
+            _toggle_ft()
+
+            self._cond_fixed_top_cards.append({
+                "category": cat,
+                "var_action": var_action,
+                "var_nukki": var_n,
+                "var_shadow": var_s,
+                "var_enhance": var_e,
+            })
 
         # ===== 2. \uc6b0\uc120\uc21c\uc704 \uc139\uc158 =====
         tk.Label(self._cond_inner,

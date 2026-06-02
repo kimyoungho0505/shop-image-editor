@@ -36,6 +36,12 @@ COMPOSITE_CATEGORIES = [
 # 표시명 조회용
 CATEGORY_LABELS = {k: label for k, label, _ in COMPOSITE_CATEGORIES}
 
+# 자동 감지 조건 설명 (고정 상단 카드에 표시)
+CATEGORY_DETECT_DESC = {
+    "barcode": "9로 시작하는 13자리 EAN-13 바코드가 감지된 이미지",
+    "label":   "제품 본체 없이 라벨/태그/바코드만 찍힌 컷으로 감지된 이미지",
+}
+
 # 사용자가 우선순위로 정렬 가능한 카테고리 (고정 상/하단 제외)
 SORTABLE_CATEGORIES = [
     k for k, _, _ in COMPOSITE_CATEGORIES
@@ -208,10 +214,19 @@ def evaluate_v2(rules_v2: dict, category: str,
     if not isinstance(rules_v2, dict):
         rules_v2 = default_rules_v2()
 
-    # 1. 고정 상단 (barcode/label) — 제외 카테고리
+    # 1. 고정 상단 (barcode/label) — 제외 또는 사용자 지정 처리
     for r in rules_v2.get("fixed_top", []):
-        if r.get("category") == category and r.get("action") == "exclude":
+        if r.get("category") != category:
+            continue
+        if r.get("action", "exclude") == "exclude":
             return {"exclude": True, "matched": category}
+        return {
+            "exclude": False,
+            "nukki": bool(r.get("nukki", True)),
+            "shadow": bool(r.get("shadow", False)),
+            "enhance": bool(r.get("enhance", True)),
+            "matched": category,
+        }
 
     # 2. 우선순위 규칙 (위에서부터)
     for r in rules_v2.get("priority_rules", []):
