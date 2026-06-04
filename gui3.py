@@ -193,9 +193,9 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             _APP_VER = "dev"
         self._app_version = _APP_VER
         self.title(f"LUXBOY Shop Image Editor — v{_APP_VER}")
-        self.geometry("1100x850")
+        self.geometry("1320x900")
         self.configure(bg=BG_COLOR)
-        self.minsize(900, 700)
+        self.minsize(1120, 780)
         try:
             self.iconbitmap(default="")
         except Exception:
@@ -1960,12 +1960,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                    command=_delete_checked_from_disk).pack(side="left", padx=(0, 3))
         ttk.Button(btn_row, text="전체삭제",
                    command=lambda: self.tv_folders.delete(*self.tv_folders.get_children())
-                   ).pack(side="left", padx=(0, 8))
+                   ).pack(side="left", padx=(0, 3))
         ttk.Button(btn_row, text="출력열기",
-                   command=self._open_unified_output_folder).pack(side="left")
+                   command=self._open_unified_output_folder).pack(side="left", padx=(0, 3))
         # 체크한 폴더의 기존 OUTPUT 결과를 뷰파인더로 다시 보기 (재처리 불필요)
-        ttk.Button(btn_row, text="🔍 뷰파인더 보기",
-                   command=self._open_viewfinder_from_output).pack(side="left", padx=(8, 0))
+        ttk.Button(btn_row, text="🔍 뷰파인더",
+                   command=self._open_viewfinder_from_output).pack(side="left")
 
         # ── 오른쪽: 로그 ──
         log_card = tk.LabelFrame(bottom, text=" 로그 ", font=(FONT_FAMILY, 9, "bold"),
