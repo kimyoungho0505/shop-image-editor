@@ -110,6 +110,24 @@ class PhotoroomClient:
         return params
 
     @staticmethod
+    def _seg_bg_color(value) -> str:
+        """v1/segment bg_color 정규화.
+
+        v1/segment는 hex 값에 '#' 접두가 필요하다 (예: '#FFFFFF').
+        '#' 없는 순수 hex(3/6자리)면 '#'을 붙이고, 색상 이름(red 등)은
+        그대로 둔다. (v2/edit의 background.color는 '#' 없이도 허용됨)
+        """
+        s = str(value).strip()
+        if not s:
+            return s
+        if s.startswith("#"):
+            return s
+        core = s.lstrip("#")
+        if len(core) in (3, 6) and all(c in "0123456789abcdefABCDEF" for c in core):
+            return "#" + core
+        return s  # 색상 이름 등은 그대로
+
+    @staticmethod
     def should_process(image_type: str, background: str) -> bool:
         """Photoroom 처리 여부를 판단한다."""
         if image_type == "full":
@@ -196,7 +214,8 @@ class PhotoroomClient:
             # 단, bg_color가 명시되면 그대로 전달.
             bg_color = config.get("background.color")
             if bg_color:
-                seg_params["bg_color"] = str(bg_color)
+                # v1/segment는 hex에 '#' 접두 필요 → 정규화
+                seg_params["bg_color"] = self._seg_bg_color(bg_color)
             logger.info(
                 f"Photoroom 배경제거만 (유형: {image_type}) → v1/segment (저비용)")
             return self._call_api(
