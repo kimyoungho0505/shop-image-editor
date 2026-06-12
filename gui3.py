@@ -212,87 +212,6 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         # 앱 시작 3초 후 백그라운드에서 업데이트 체크
         self.after(3000, self._schedule_update_check)
-        # 시작 1초 후 image2 공유 프롬프트 동기화 (.env에 REPO/TOKEN 있을 때만)
-        self.after(1000, self._shared_prompts_sync_startup)
-
-    # ──────────────────────────────────────────────────────────
-    # image-2.0 프롬프트 GitHub 공유 동기화 (3인 팀 자동 적용)
-    # ──────────────────────────────────────────────────────────
-
-    @property
-    def _shared_pending_flag(self):
-        return CONFIG_DIR / ".image2_push_pending"
-
-    def _shared_prompts_sync_startup(self):
-        """시작 시 공유 저장소와 동기화 (백그라운드).
-
-        - 이전 푸시 실패분이 있으면(오프라인 등) 로컬을 먼저 푸시
-        - 아니면 원격본을 받아 로컬에 적용 (last-writer-wins)
-        """
-        from src.utils.shared_prompts import get_config
-        cfg = get_config()
-        if cfg is None:
-            return  # .env 미설정 — 기능 OFF
-
-        def _work():
-            from src.utils.shared_prompts import fetch_shared, push_shared
-            try:
-                if self._shared_pending_flag.exists():
-                    # 푸시 실패 잔여분 — 내 로컬이 최신이므로 푸시부터
-                    local = IMAGE2_PROMPTS_PATH.read_text(encoding="utf-8") \
-                        if IMAGE2_PROMPTS_PATH.exists() else ""
-                    if local and push_shared(cfg, local):
-                        self._shared_pending_flag.unlink(missing_ok=True)
-                        self.after(0, lambda: self._log_unified(
-                            "☁ image2 프롬프트: 보류분 공유 푸시 완료"))
-                    return
-                fetched = fetch_shared(cfg)
-                if not fetched:
-                    return
-                remote_text, _sha = fetched
-                if not remote_text.strip():
-                    return  # 공유 파일이 아직 없음
-                local_text = IMAGE2_PROMPTS_PATH.read_text(encoding="utf-8") \
-                    if IMAGE2_PROMPTS_PATH.exists() else ""
-                if remote_text.strip() == local_text.strip():
-                    return  # 동일 — 적용 불필요
-                IMAGE2_PROMPTS_PATH.write_text(remote_text, encoding="utf-8")
-
-                def _applied():
-                    self._log_unified("☁ image2 프롬프트: 공유본 자동 적용됨")
-                    try:
-                        self._image2_load_category()  # 조건 탭 표시 갱신
-                    except Exception:
-                        pass
-                self.after(0, _applied)
-            except Exception as e:
-                print(f"공유 프롬프트 동기화 오류: {e}")
-
-        threading.Thread(target=_work, daemon=True).start()
-
-    def _shared_prompts_push_async(self):
-        """저장 직후 공유 저장소로 푸시 (백그라운드). 실패 시 보류 플래그."""
-        from src.utils.shared_prompts import get_config
-        cfg = get_config()
-        if cfg is None:
-            return
-
-        def _work():
-            from src.utils.shared_prompts import push_shared
-            try:
-                local = IMAGE2_PROMPTS_PATH.read_text(encoding="utf-8")
-                if push_shared(cfg, local):
-                    self._shared_pending_flag.unlink(missing_ok=True)
-                    self.after(0, lambda: self._log_unified(
-                        "☁ image2 프롬프트: 전체 사용자에게 공유됨"))
-                else:
-                    self._shared_pending_flag.write_text("1", encoding="utf-8")
-                    self.after(0, lambda: self._log_unified(
-                        "⚠ image2 프롬프트 공유 푸시 실패 — 다음 실행 때 재시도"))
-            except Exception as e:
-                print(f"공유 프롬프트 푸시 오류: {e}")
-
-        threading.Thread(target=_work, daemon=True).start()
 
     # ──────────────────────────────────────────────────────────
     # 자동 업데이트
@@ -978,8 +897,6 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             self.txt_image2_verify.get("1.0", "end").strip()
 
         save_yaml(IMAGE2_PROMPTS_PATH, data)
-        # 공유 동기화 설정 시 전체 사용자에게 자동 공유 (백그라운드 푸시)
-        self._shared_prompts_push_async()
         messagebox.showinfo("저장 완료",
                             f"image-2.0 프롬프트 ({sel})가 저장되었습니다.")
 
