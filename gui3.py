@@ -781,14 +781,21 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             variable=self.var_image2_block_unsafe,
         ).pack(side="left", padx=(16, 0))
 
+        # 카테고리 키 ↔ 한글 표시명 (yaml 저장 키는 영문 유지 — 기존 데이터/자동감지 호환)
+        self._image2_cat_labels = {
+            "default": "기본", "jewelry": "주얼리", "mannequin": "마네킹",
+            "model": "모델", "full": "풀샷", "detail": "디테일컷",
+            "package": "패키지",
+        }
+        self._image2_label_to_key = {v: k for k, v in self._image2_cat_labels.items()}
+
         # 카테고리 선택
         cat_row = tk.Frame(parent); cat_row.pack(fill="x", padx=12, pady=(8, 4))
         tk.Label(cat_row, text="카테고리:").pack(side="left")
-        self.var_image2_category = tk.StringVar(value="default")
+        self.var_image2_category = tk.StringVar(value="기본")
         cat_combo = ttk.Combobox(
             cat_row, textvariable=self.var_image2_category,
-            values=["default", "jewelry", "mannequin", "model",
-                    "full", "detail", "package"],
+            values=list(self._image2_cat_labels.values()),
             state="readonly", width=14,
         )
         cat_combo.pack(side="left", padx=4)
@@ -836,7 +843,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             self.var_image2_block_unsafe.set(
                 bool(cfg.get("verification", {}).get("block_on_unsafe", False)))
 
-        cat = self.var_image2_category.get()
+        sel = self.var_image2_category.get()
+        cat = self._image2_label_to_key.get(sel, sel)
         prompts = cfg.get("prompts", {}).get(cat, {})
         self.txt_image2_enhance.delete("1.0", "end")
         self.txt_image2_enhance.insert("1.0", prompts.get("enhance", ""))
@@ -859,7 +867,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                           "Respond ONLY in JSON: {\"safe\": true|false, \"issues\": [\"...\"]}.",
             },
         }
-        cat = self.var_image2_category.get()
+        sel = self.var_image2_category.get()
+        cat = self._image2_label_to_key.get(sel, sel)
         d = defaults.get(cat, defaults["default"])
         self.txt_image2_enhance.delete("1.0", "end")
         self.txt_image2_enhance.insert("1.0", d["enhance"])
@@ -880,7 +889,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         cfg.setdefault("verification", {})["model"] = self.var_image2_verify_model.get()
         cfg["verification"]["block_on_unsafe"] = bool(self.var_image2_block_unsafe.get())
         prompts = cfg.setdefault("prompts", {})
-        cat = self.var_image2_category.get()
+        sel = self.var_image2_category.get()
+        cat = self._image2_label_to_key.get(sel, sel)
         prompts.setdefault(cat, {})["enhance"] = \
             self.txt_image2_enhance.get("1.0", "end").strip()
         prompts[cat]["verify"] = \
@@ -888,7 +898,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         save_yaml(IMAGE2_PROMPTS_PATH, data)
         messagebox.showinfo("저장 완료",
-                            f"image-2.0 프롬프트 ({cat})가 저장되었습니다.")
+                            f"image-2.0 프롬프트 ({sel})가 저장되었습니다.")
 
     def _load_routing_rules(self):
         """config/routing_rules.yaml \ub85c\ub4dc \u2192 v2 \uc2a4\ud0a4\ub9c8 dict \ubc18\ud658."""
@@ -5170,17 +5180,23 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         f = tk.Frame(dlg, padx=18, pady=14); f.pack(fill="both", expand=True)
 
-        # 카테고리
+        # 카테고리 (표시는 한글, 내부 키는 영문)
+        _labels = getattr(self, "_image2_cat_labels", {})
+        _l2k = getattr(self, "_image2_label_to_key", {})
+        def _cat_label(k): return _labels.get(k, k)
+        cat_keys = list(prompts.keys()) or ["default"]
+        cat_default_label = _cat_label(cat_default)
+
         row = tk.Frame(f); row.pack(fill="x", pady=4)
         tk.Label(row, text="카테고리:", width=10, anchor="w").pack(side="left")
-        var_cat = tk.StringVar(value=cat_default)
+        var_cat = tk.StringVar(value=cat_default_label)
         cat_combo = ttk.Combobox(
             row, textvariable=var_cat,
-            values=list(prompts.keys()) or ["default"],
+            values=[_cat_label(k) for k in cat_keys],
             state="readonly", width=18,
         )
         cat_combo.pack(side="left")
-        tk.Label(row, text=f"(자동 감지: {cat_default})",
+        tk.Label(row, text=f"(자동 감지: {cat_default_label})",
                  fg="#888", font=("맑은 고딕", 8)).pack(side="left", padx=8)
 
         # 보정 프롬프트
@@ -5191,7 +5207,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         txt_prompt.pack(fill="x")
 
         def _load_prompt():
-            cat = var_cat.get()
+            cat = _l2k.get(var_cat.get(), var_cat.get())
             txt_prompt.delete("1.0", "end")
             txt_prompt.insert("1.0",
                               prompts.get(cat, {}).get("enhance", ""))
@@ -5226,7 +5242,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 messagebox.showwarning("경고", "프롬프트가 비어있습니다.",
                                        parent=dlg)
                 return
-            cat = var_cat.get()
+            cat = _l2k.get(var_cat.get(), var_cat.get())
             verify_prompt = prompts.get(cat, {}).get("verify", "")
             quality = var_quality.get()
             run_verify = var_verify.get()
