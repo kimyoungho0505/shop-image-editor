@@ -781,15 +781,17 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             variable=self.var_image2_block_unsafe,
         ).pack(side="left", padx=(16, 0))
 
-        # 카테고리 키 ↔ 한글 표시명 (yaml 저장 키는 영문 유지 — 기존 데이터/자동감지 호환)
-        self._image2_cat_labels = {
+        # 빌트인 카테고리 키 ↔ 한글 표시명 (yaml 저장 키는 영문 유지 — 기존 데이터/자동감지 호환)
+        self._image2_builtin_labels = {
             "default": "기본", "jewelry": "주얼리", "mannequin": "마네킹",
             "model": "모델", "full": "풀샷", "detail": "디테일컷",
             "package": "패키지",
         }
+        # 커스텀 포함 전체 매핑은 _image2_refresh_categories()가 yaml에서 채움
+        self._image2_cat_labels = dict(self._image2_builtin_labels)
         self._image2_label_to_key = {v: k for k, v in self._image2_cat_labels.items()}
 
-        # 카테고리 선택
+        # 카테고리 선택 + 사용자 카테고리 추가/삭제
         cat_row = tk.Frame(parent); cat_row.pack(fill="x", padx=12, pady=(8, 4))
         tk.Label(cat_row, text="카테고리:").pack(side="left")
         self.var_image2_category = tk.StringVar(value="기본")
@@ -801,6 +803,14 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         cat_combo.pack(side="left", padx=4)
         cat_combo.bind("<<ComboboxSelected>>",
                        lambda _e: self._image2_load_category())
+        self._image2_cat_combo = cat_combo
+        tk.Button(cat_row, text="➕ 추가",
+                  command=self._image2_add_category).pack(side="left", padx=(8, 2))
+        tk.Button(cat_row, text="✕ 삭제",
+                  command=self._image2_delete_category).pack(side="left")
+        tk.Label(cat_row, text="(삭제는 직접 추가한 카테고리만 가능)",
+                 fg="#9ca3af", font=("맑은 고딕", 8)).pack(side="left", padx=8)
+        self._image2_refresh_categories()
 
         # 보정 프롬프트
         tk.Label(parent, text="보정 프롬프트:",
@@ -826,6 +836,75 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                   ).pack(side="right")
 
         # 초기 로드
+        self._image2_load_category()
+
+    def _image2_refresh_categories(self, select_label: str = None):
+        """yaml의 custom_categories를 합쳐 콤보박스/매핑 갱신."""
+        try:
+            data = load_yaml(IMAGE2_PROMPTS_PATH) or {}
+        except Exception:
+            data = {}
+        custom = (data.get("image2", {}) or {}).get("custom_categories", {}) or {}
+        self._image2_cat_labels = dict(self._image2_builtin_labels)
+        self._image2_cat_labels.update({str(k): str(v) for k, v in custom.items()})
+        self._image2_label_to_key = {v: k for k, v in self._image2_cat_labels.items()}
+        self._image2_cat_combo.config(values=list(self._image2_cat_labels.values()))
+        if select_label:
+            self.var_image2_category.set(select_label)
+
+    def _image2_add_category(self):
+        """사용자 정의 image2 카테고리 추가."""
+        from src.utils.category_router import slugify_category
+        name = simpledialog.askstring(
+            "카테고리 추가", "새 카테고리 이름 (한글 가능):", parent=self)
+        if not name:
+            return
+        name = name.strip()
+        if name in self._image2_label_to_key:
+            messagebox.showwarning("중복", f"'{name}' 카테고리가 이미 있습니다.")
+            return
+        key = slugify_category(name, set(self._image2_cat_labels.keys()))
+
+        try:
+            data = load_yaml(IMAGE2_PROMPTS_PATH) or {}
+        except Exception:
+            data = {}
+        cfg = data.setdefault("image2", {})
+        cfg.setdefault("custom_categories", {})[key] = name
+        # 빈 프롬프트 슬롯 생성 (default 내용 복사해 시작점 제공)
+        prompts = cfg.setdefault("prompts", {})
+        base = dict(prompts.get("default", {}))
+        prompts.setdefault(key, {"enhance": base.get("enhance", ""),
+                                 "verify": base.get("verify", "")})
+        save_yaml(IMAGE2_PROMPTS_PATH, data)
+
+        self._image2_refresh_categories(select_label=name)
+        self._image2_load_category()
+        messagebox.showinfo("추가 완료",
+                            f"'{name}' 카테고리가 추가되었습니다.\n"
+                            "프롬프트를 수정한 뒤 [저장]을 누르세요.")
+
+    def _image2_delete_category(self):
+        """사용자 정의 image2 카테고리 삭제 (빌트인은 불가)."""
+        sel = self.var_image2_category.get()
+        key = self._image2_label_to_key.get(sel, sel)
+        if key in self._image2_builtin_labels:
+            messagebox.showwarning("삭제 불가",
+                                   "기본 제공 카테고리는 삭제할 수 없습니다.")
+            return
+        if not messagebox.askyesno(
+                "삭제 확인",
+                f"'{sel}' 카테고리와 해당 프롬프트를 삭제합니다.\n계속할까요?"):
+            return
+        try:
+            data = load_yaml(IMAGE2_PROMPTS_PATH) or {}
+        except Exception:
+            data = {}
+        cfg = data.setdefault("image2", {})
+        cfg.get("custom_categories", {}).pop(key, None)
+        cfg.get("prompts", {}).pop(key, None)
+        save_yaml(IMAGE2_PROMPTS_PATH, data)
+        self._image2_refresh_categories(select_label="기본")
         self._image2_load_category()
 
     def _image2_load_category(self):
