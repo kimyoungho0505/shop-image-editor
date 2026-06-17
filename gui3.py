@@ -209,6 +209,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self._load_state()
         self._build_ui()
         self._load_configs()
+        # 포토룸 크레딧 사용량 추적 파일 경로 설정
+        try:
+            from src.utils import credit_tracker
+            credit_tracker.configure(CONFIG_DIR)
+        except Exception:
+            pass
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         # 앱 시작 3초 후 백그라운드에서 업데이트 체크
         self.after(3000, self._schedule_update_check)
@@ -2210,6 +2216,13 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self._vf_file_stages = {}
         self._barcode_excluded_files = []   # 바코드 제외 목록 (배치 단위 누적)
         self.btn_unified_vf.config(state="normal")
+        # 포토룸 크레딧: 이번 배치 세션 초기화 + 폴더별 집계 준비
+        self._batch_folder_credits = {}
+        try:
+            from src.utils import credit_tracker
+            credit_tracker.reset_session()
+        except Exception:
+            pass
 
         # 뷰파인더에 모든 파일을 입력 순서대로 사전 등록 (워커 시작 전)
         # → 병렬 처리되어도 카드 순서는 입력 폴더의 자연수 정렬 그대로 유지됨
@@ -2244,6 +2257,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             else:
                 _img_out, _img_resizer, _img_seq_n, _img_is_first = _plan
             self._log_unified(f"-- [{idx}/{total}] {fname} 시작 --")
+            # 이 이미지의 포토룸 크레딧 추적 시작 (워커 스레드별)
+            try:
+                from src.utils import credit_tracker
+                credit_tracker.start_image()
+            except Exception:
+                pass
             # 사전 등록된 vf_idx 재사용 (입력 순서 보장)
             vf_idx = self._vf_pre_registered.get(img_path, -1)
             if vf_idx < 0:
@@ -2377,6 +2396,23 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 except Exception as _re:
                     self._log_unified(f"  ⚠️ 리사이즈 실패: {_re}", "warning")
 
+            # ── 포토룸 크레딧 집계 (이미지 단위 → 폴더/세션 누적) ──
+            try:
+                from src.utils import credit_tracker
+                _img_cr = credit_tracker.image_credits()
+                if _img_cr > 0:
+                    _sess = credit_tracker.session_summary()
+                    self._log_unified(
+                        f"  💳 포토룸 크레딧: 이 이미지 {_img_cr:g} "
+                        f"(세션 누계 {_sess['total']:g})")
+                    _folder = str(Path(img_path).parent)
+                    with lock:
+                        self._batch_folder_credits[_folder] = round(
+                            self._batch_folder_credits.get(_folder, 0.0)
+                            + _img_cr, 3)
+            except Exception:
+                pass
+
             with lock:
                 self._vf_complete_file(vf_idx, result)
                 # 라우팅 정보 저장 (뷰파인더 표시용)
@@ -2494,6 +2530,81 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 folder = self.tv_folders.set(iid, "path")
                 done = self._read_folder_done_count(folder)
                 self.tv_folders.set(iid, "done", f"{done}장" if done > 0 else "-")
+
+        # 포토룸 크레딧 사용 요약
+        self._show_credit_summary()
+
+    def _show_credit_summary(self):
+        """이번 배치의 포토룸 크레딧 사용 요약 — 로그 + 팝업."""
+        try:
+            from src.utils import credit_tracker
+            sess = credit_tracker.session_summary()
+        except Exception:
+            return
+        if sess.get("calls", 0) <= 0:
+            return  # 포토룸 호출이 없었으면 표시 안 함
+
+        cum = credit_tracker.cumulative()
+        seg = sess.get("segment", 0.0)
+        edit = sess.get("edit", 0.0)
+        total = sess.get("total", 0.0)
+        calls = sess.get("calls", 0)
+
+        # 로그 요약
+        self._log_unified(
+            f"💳 포토룸 크레딧 사용 (이번 배치): 총 {total:g} "
+            f"(배경제거 {seg:g} / 편집·그림자·크롭 {edit:g}, {calls}회 호출)",
+            "info")
+
+        # 폴더별 요약 로그
+        fc = getattr(self, "_batch_folder_credits", {}) or {}
+        for folder, cr in sorted(fc.items(), key=lambda x: -x[1]):
+            self._log_unified(
+                f"   · {Path(folder).name}: {cr:g} 크레딧", "info")
+
+        # 팝업
+        import tkinter as _tk
+        dlg = _tk.Toplevel(self)
+        dlg.title("포토룸 크레딧 사용 요약")
+        dlg.configure(bg="white")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        f = _tk.Frame(dlg, bg="white", padx=22, pady=18)
+        f.pack(fill="both", expand=True)
+        _tk.Label(f, text="💳 포토룸 크레딧 사용 요약", bg="white", fg="#1f2937",
+                  font=("맑은 고딕", 13, "bold")).pack(anchor="w", pady=(0, 10))
+
+        rows = [
+            ("이번 배치 총 사용", f"{total:g} 크레딧 ({calls}회 호출)"),
+            ("  · 배경제거 (v1)", f"{seg:g}"),
+            ("  · 편집·그림자·크롭 (v2)", f"{edit:g}"),
+            ("전체 누적 사용", f"{cum.get('total_credits', 0.0):g} 크레딧"),
+        ]
+        for label, val in rows:
+            r = _tk.Frame(f, bg="white"); r.pack(fill="x", pady=1)
+            _tk.Label(r, text=label, bg="white", fg="#374151",
+                      font=("맑은 고딕", 10), width=22, anchor="w").pack(side="left")
+            _tk.Label(r, text=val, bg="white", fg="#111827",
+                      font=("맑은 고딕", 10, "bold"), anchor="w").pack(side="left")
+
+        if fc:
+            _tk.Label(f, text="폴더별:", bg="white", fg="#6b7280",
+                      font=("맑은 고딕", 9, "bold")).pack(anchor="w", pady=(10, 2))
+            for folder, cr in sorted(fc.items(), key=lambda x: -x[1]):
+                _tk.Label(f, text=f"  · {Path(folder).name}: {cr:g}",
+                          bg="white", fg="#374151",
+                          font=("맑은 고딕", 9)).pack(anchor="w")
+
+        _tk.Label(f, text="※ 추정치입니다 (v1=0.2, v2=1.0 크레딧 기준).",
+                  bg="white", fg="#9ca3af",
+                  font=("맑은 고딕", 8)).pack(anchor="w", pady=(10, 8))
+        _tk.Button(f, text="확인", command=dlg.destroy, width=10,
+                   bg="#2563eb", fg="white", font=("맑은 고딕", 10),
+                   bd=0, padx=10, pady=4, cursor="hand2").pack(anchor="e")
+        dlg.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - dlg.winfo_width()) // 2
+        y = self.winfo_y() + (self.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{max(0, x)}+{max(0, y)}")
 
     def _on_cat_double_click(self, event):
         item = self.cat_tree.identify_row(event.y)

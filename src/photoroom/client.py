@@ -59,6 +59,13 @@ class PhotoroomClient:
             )
 
             if response.status_code == 200:
+                # 크레딧 사용량 추적 (추정): 엔드포인트로 단가 판정
+                try:
+                    from src.utils import credit_tracker
+                    credit_tracker.record_url(
+                        target_url, self.SEGMENT_URL, self.EDIT_URL)
+                except Exception:
+                    pass
                 break
 
             if response.status_code in (429, 500, 502, 503) and attempt < max_retries:
