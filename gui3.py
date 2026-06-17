@@ -3135,11 +3135,14 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         if done and stage == "저장":
             self._vf_file_stages[key]["status"] = "done"
 
-    def _vf_run_rework_one(self, vf_idx, nukki_mode, use_enhance):
+    def _vf_run_rework_one(self, vf_idx, nukki_mode, use_enhance, use_shadow=False):
         """단일 카드 재작업 워커 — 결과를 pair에 영구 저장 (배치/단일 공용).
 
         nukki_mode: "없음" | "Photoroom" | "RemoveBG"
         use_enhance: bool (Claid 보정)
+        use_shadow:  bool (그림자 생성 — Photoroom 누끼일 때만 적용)
+                     · 누끼만:      Photoroom v1/segment (저비용)
+                     · 누끼+그림자: Photoroom v2/edit (그림자 생성, 고비용)
         """
         pairs = self._viewfinder_pairs
         if vf_idx < 0 or vf_idx >= len(pairs):
@@ -3185,11 +3188,17 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                         "background.color": "FFFFFF", "export.format": "jpg",
                         "outputSize": "1000x1000", "padding": "0.1", "scaling": "fit",
                     }
+                    if use_shadow:
+                        # 그림자 포함 → v2/edit (고비용)
+                        pr_config["shadow.mode"] = "ai.soft"
+                        pr_config["shadow.opacity"] = 0.5
                     res = pr.process(current, "full", "clean",
                                      output_size="1000x1000", config=pr_config)
                     if res:
                         current = res
-                        steps_done.append("누끼(Photoroom)")
+                        steps_done.append(
+                            "누끼+그림자(Photoroom)" if use_shadow
+                            else "누끼(Photoroom)")
                 elif nukki_mode == "RemoveBG":
                     rb = RemoveBgClient()
                     rb_config = {"size": "auto", "type": "product",
@@ -3256,6 +3265,88 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def _vf_save_rework_result(self, vf_idx):
+        """카드의 재작업 결과(_rp_result_bytes)를 OUTPUT/멀티사이즈에 저장 (배치/단일 공용).
+
+        Returns: (성공여부, 메시지)
+        """
+        pairs = self._viewfinder_pairs
+        if vf_idx < 0 or vf_idx >= len(pairs):
+            return (False, "잘못된 인덱스")
+        pair = pairs[vf_idx]
+        new_bytes = pair.get("_rp_result_bytes")
+        if new_bytes is None:
+            return (False, "저장할 재작업 결과 없음")
+        input_path = pair.get("input_path", "")
+        if not input_path:
+            return (False, "입력 파일 경로 없음")
+        in_path = Path(input_path)
+        out_files = pair.get("output_files", [])
+        try:
+            if out_files:
+                out_dir = Path(out_files[0]["path"]).parent
+                if out_dir.name in ("original", "1500", "860", "crop"):
+                    out_dir = out_dir.parent
+            else:
+                out_dir = in_path.parent / "OUTPUT"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            stem = in_path.stem
+
+            primary = out_dir / f"{stem}_1.jpg"
+            primary.write_bytes(new_bytes)
+            saved_parts = [primary.name]
+
+            orig_dir = out_dir / "original"
+            orig_dir.mkdir(parents=True, exist_ok=True)
+            (orig_dir / f"{stem}_1.jpg").write_bytes(new_bytes)
+            saved_parts.append(f"original/{stem}_1.jpg")
+
+            try:
+                from src.exporter.resizer import MultiSizeResizer
+                try:
+                    _settings = load_yaml(SETTINGS_PATH) or {}
+                except Exception:
+                    _settings = {}
+                resizer = MultiSizeResizer(out_dir, _settings)
+                seq_n = pair.get("seq_n", vf_idx + 1)
+                is_first = (seq_n == 1)
+                rs = resizer.make_resized_set(
+                    new_bytes, seq_n=seq_n, is_first=is_first)
+                pair["seq_n"] = seq_n
+                if rs.get("size_1500"):
+                    saved_parts.append(f"1500/{seq_n}.jpg")
+                if rs.get("size_860"):
+                    saved_parts.append(f"860/100_{seq_n}.jpg")
+                if rs.get("crop"):
+                    saved_parts.append("860/100_list.jpg")
+            except Exception as _re:
+                if hasattr(self, "_log_unified"):
+                    self._log_unified(
+                        f"  ⚠️ 수동 재작업 멀티사이즈 실패: {_re}", "warning")
+
+            pair["output_files"] = [{
+                "path": str(primary),
+                "size_kb": primary.stat().st_size // 1024,
+            }]
+            pair["success"] = True
+            pair["status"] = "done"
+            fname = in_path.name
+            if fname in self._vf_file_stages:
+                self._vf_file_stages[fname]["status"] = "done"
+            pair["_rp_result_bytes"] = None
+            pair["_rp_temp_path"] = None
+            pair["_rp_steps"] = ""
+            pair["_rp_status"] = ""
+            pair["_rp_pending"] = False
+            try:
+                self._vf_refresh_row(vf_idx)
+            except Exception:
+                pass
+            return (True, "✓ 저장: " + ", ".join(saved_parts[:4])
+                    + ("..." if len(saved_parts) > 4 else ""))
+        except Exception as e:
+            return (False, f"저장 실패: {e}")
+
     def _vf_batch_rework(self):
         """뷰파인더에서 체크된 여러 카드를 일괄 재작업 — 옵션 팝업 후 동시 처리."""
         checks = getattr(self, "_vf_row_checks", {})
@@ -3301,6 +3392,19 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 cursor="hand2",
             ).pack(side="left", padx=(0, 10))
 
+        # 그림자 (Photoroom 누끼일 때만 적용)
+        srow = tk.Frame(f, bg="#1e1e2e")
+        srow.pack(fill="x", pady=(0, 6))
+        tk.Label(srow, text="그림자:", bg="#1e1e2e", fg="#cdd6f4",
+                 font=("맑은 고딕", 10), width=6, anchor="w").pack(side="left")
+        var_shadow = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            srow, text="그림자 생성 (Photoroom v2)", variable=var_shadow,
+            bg="#1e1e2e", fg="#cdd6f4", selectcolor="#313244",
+            activebackground="#1e1e2e", font=("맑은 고딕", 10),
+            cursor="hand2",
+        ).pack(side="left")
+
         # 보정
         erow = tk.Frame(f, bg="#1e1e2e")
         erow.pack(fill="x", pady=(0, 14))
@@ -3321,13 +3425,15 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         def _start():
             nukki = var_nukki.get()
             enhance = var_enhance.get()
+            shadow = var_shadow.get()
             dlg.destroy()
             if hasattr(self, "_log_unified"):
                 self._log_unified(
                     f"📋 선택 재작업 시작 — {len(checked_idxs)}개 "
-                    f"(누끼={nukki}, 보정={'O' if enhance else 'X'})", "info")
+                    f"(누끼={nukki}, 그림자={'O' if shadow else 'X'}, "
+                    f"보정={'O' if enhance else 'X'})", "info")
             for i in checked_idxs:
-                self._vf_run_rework_one(i, nukki, enhance)
+                self._vf_run_rework_one(i, nukki, enhance, shadow)
                 # 체크 해제 (작업 큐에 들어갔으므로)
                 try:
                     self._vf_row_checks[i].set(False)
@@ -4216,15 +4322,10 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         rp_hdr.pack(fill="x")
         tk.Label(rp_hdr, text="\u270f\ufe0f  \uc218\ub3d9 \uc7ac\uc791\uc5c5",
                  bg=VF_BG, fg="#bac2de", font=(FONT_FAMILY, 10, "bold")).pack(side="left")
-        # \uccb4\ud06c\ud55c \uce74\ub4dc \uc77c\uad04 \uc7ac\uc791\uc5c5 \ubc84\ud2bc
-        tk.Button(
-            rp_hdr, text="\U0001f4cb \uc120\ud0dd \uc7ac\uc791\uc5c5(\uccb4\ud06c)",
-            command=lambda: self._vf_batch_rework(),
-            font=(FONT_FAMILY, 9, "bold"),
-            bg="#e67e22", fg="white",
-            activebackground="#d35400", activeforeground="white",
-            bd=0, padx=10, pady=2, cursor="hand2",
-        ).pack(side="right")
+        # 적용 대상: 체크된 이미지(없으면 현재 이미지)
+        tk.Label(rp_hdr, text="체크된 이미지에 적용 (없으면 현재 이미지)",
+                 bg=VF_BG, fg=VF_TEXT_FAINT,
+                 font=(FONT_FAMILY, 8)).pack(side="right")
 
         # 누끼 방식 선택
         nukki_row = tk.Frame(rp_panel, bg=VF_BG)
@@ -4237,6 +4338,18 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                            bg=VF_BG, fg=VF_TEXT, selectcolor=VF_CARD,
                            activebackground=VF_BG, font=(FONT_FAMILY, 9),
                            cursor="hand2").pack(side="left", padx=(0, 8))
+
+        # 그림자 선택 (Photoroom 누끼일 때만 적용)
+        shadow_row = tk.Frame(rp_panel, bg=VF_BG)
+        shadow_row.pack(fill="x", pady=(2, 0))
+        tk.Label(shadow_row, text="그림자:", bg=VF_BG, fg=VF_TEXT_DIM,
+                 font=(FONT_FAMILY, 9), width=5, anchor="w").pack(side="left")
+        rp_shadow_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(shadow_row, text="그림자 생성 (Photoroom v2)",
+                       variable=rp_shadow_var,
+                       bg=VF_BG, fg=VF_TEXT, selectcolor=VF_CARD,
+                       activebackground=VF_BG, font=(FONT_FAMILY, 9),
+                       cursor="hand2").pack(side="left")
 
         # 보정 선택
         enhance_row = tk.Frame(rp_panel, bg=VF_BG)
@@ -4333,231 +4446,102 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         self._vf_rp_refresh_panel = _rp_refresh_panel
 
+        def _rp_target_indices():
+            """체크된 카드 인덱스 목록 (없으면 현재 카드)."""
+            checks = getattr(self, "_vf_row_checks", {})
+            idxs = [i for i, v in checks.items()
+                    if v.get() and 0 <= i < len(self._viewfinder_pairs)]
+            if not idxs:
+                idxs = [current_idx[0]]
+            return sorted(set(idxs))
+
         def _on_rp_run():
             pairs = self._viewfinder_pairs
-            if not pairs or current_idx[0] >= len(pairs):
+            if not pairs:
                 return
-            target_idx = current_idx[0]
-            target_pair = pairs[target_idx]
-            input_path = target_pair.get("input_path", "")
-            if not input_path or not Path(input_path).exists():
-                lbl_rp_status.config(text="원본 파일 없음", fg=VF_RED)
-                return
-            if target_pair.get("_rp_running"):
-                lbl_rp_status.config(text="이미 재작업 진행 중입니다", fg=VF_ACCENT)
-                return
-
             nukki_mode = rp_nukki_var.get()
             use_enhance = rp_enhance_var.get()
-
-            target_pair["_rp_running"] = True
-            target_pair["_rp_result_bytes"] = None
-            target_pair["_rp_temp_path"] = None
-            target_pair["_rp_steps"] = ""
-            target_pair["_rp_status"] = "처리 준비 중..."
-            _rp_refresh_panel(target_idx)
-
-            def _set_status(txt):
-                target_pair["_rp_status"] = txt
-                if current_idx[0] == target_idx:
-                    self.after(0, lambda: lbl_rp_status.config(text=txt, fg=VF_ACCENT))
-
-            def _run():
-                try:
-                    from src.pipeline import ImageEditPipeline
-                    from src.photoroom.client import PhotoroomClient
-                    from src.removebg.client import RemoveBgClient
-                    from src.claid.client import ClaidClient
-                    import tempfile
-
-                    current = Path(input_path).read_bytes()
-                    steps_done = []
-
-                    if nukki_mode == "Photoroom":
-                        _set_status("Photoroom 누끼 작업 중...")
-                        pr = PhotoroomClient()
-                        pr_config = {
-                            "background.color": "FFFFFF",
-                            "export.format": "jpg",
-                            "outputSize": "1000x1000",
-                            "padding": "0.1",
-                            "scaling": "fit",
-                        }
-                        res = pr.process(current, "full", "clean",
-                                         output_size="1000x1000", config=pr_config)
-                        if res:
-                            current = res
-                            steps_done.append("누끼(Photoroom)")
-                    elif nukki_mode == "RemoveBG":
-                        _set_status("RemoveBG 누끼 작업 중...")
-                        rb = RemoveBgClient()
-                        rb_config = {
-                            "size": "auto",
-                            "type": "product",
-                            "format": "jpg",
-                            "bg_color": "ffffff",
-                        }
-                        res = rb.process(current, "full", "clean",
-                                         output_size="1000x1000", config=rb_config)
-                        if res:
-                            current = res
-                            steps_done.append("누끼(RemoveBG)")
-
-                    if use_enhance:
-                        _set_status("Claid 보정 중...")
-                        pl = ImageEditPipeline(config_dir=str(CONFIG_DIR))
-                        claid_settings = pl._settings.get("claid", {})
-                        claid_config = dict(claid_settings.get("full", {}))
-                        cl = ClaidClient()
-                        res = cl.process(current, "full", config=claid_config)
-                        if res:
-                            current = res
-                            steps_done.append("보정(Claid)")
-
-                    size_kb = len(current) // 1024
-                    steps_text = " + ".join(steps_done) if steps_done else "변환 없음"
-
-                    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-                    tmp.write(current)
-                    tmp.close()
-
-                    target_pair["_rp_running"] = False
-                    target_pair["_rp_result_bytes"] = current
-                    target_pair["_rp_temp_path"] = tmp.name
-                    target_pair["_rp_steps"] = steps_text
-                    target_pair["_rp_pending"] = True
-                    target_pair["_rp_status"] = (
-                        "✓ 재작업 완료(미저장): "
-                        + steps_text + " (" + str(size_kb) + "KB)")
-
-                    def _done():
-                        try:
-                            self._vf_refresh_row(target_idx)
-                        except Exception:
-                            pass
-                        if current_idx[0] == target_idx:
-                            _rp_refresh_panel(target_idx)
-                        else:
-                            tname = Path(input_path).name
-                            if hasattr(self, "_log_unified"):
-                                self._log_unified(
-                                    "  ✓ [" + tname + "] 재작업 완료 (저장 대기) — "
-                                    "목록에서 해당 컷 선택 후 '수정완료' 누르세요",
-                                    "success")
-                    self.after(0, _done)
-
-                except Exception as e:
-                    import traceback as _tb
-                    err_msg = str(e)
-                    tb_str = _tb.format_exc()
-                    target_pair["_rp_running"] = False
-                    target_pair["_rp_status"] = "오류: " + err_msg[:50]
-
-                    def _err():
-                        if current_idx[0] == target_idx:
-                            lbl_rp_status.config(text="오류: " + err_msg[:50], fg=VF_RED)
-                            btn_rp_run.config(state="normal", text="▶ 재작업 실행")
-                        self._log_unified(tb_str, "error")
-                    self.after(0, _err)
-
-            threading.Thread(target=_run, daemon=True).start()
+            use_shadow = rp_shadow_var.get()
+            targets = _rp_target_indices()
+            started = 0
+            for idx in targets:
+                if idx < 0 or idx >= len(pairs):
+                    continue
+                if pairs[idx].get("_rp_running"):
+                    continue
+                if not Path(pairs[idx].get("input_path", "")).exists():
+                    continue
+                self._vf_run_rework_one(idx, nukki_mode, use_enhance, use_shadow)
+                started += 1
+            if started == 0:
+                lbl_rp_status.config(text="재작업할 대상이 없습니다", fg=VF_RED)
+                return
+            if len(targets) > 1:
+                lbl_rp_status.config(
+                    text=f"▶ {started}개 이미지 재작업 시작 "
+                         f"(누끼={nukki_mode}, 그림자={'O' if use_shadow else 'X'}, "
+                         f"보정={'O' if use_enhance else 'X'})",
+                    fg=VF_ACCENT)
+                if hasattr(self, "_log_unified"):
+                    self._log_unified(
+                        f"📋 수동 재작업 시작 — {started}개 "
+                        f"(누끼={nukki_mode}, 그림자={'O' if use_shadow else 'X'}, "
+                        f"보정={'O' if use_enhance else 'X'})", "info")
+                for idx in targets:
+                    try:
+                        self._vf_row_checks[idx].set(False)
+                    except Exception:
+                        pass
 
         def _on_rp_confirm():
             pairs = self._viewfinder_pairs
-            if not pairs or current_idx[0] >= len(pairs):
+            if not pairs:
                 return
-            # \u2605 \ud604\uc7ac \ubcf4\uace0 \uc788\ub294 \uce74\ub4dc\uc758 \uc800\uc7a5\ub41c \uc7ac\uc791\uc5c5 \uacb0\uacfc\ub97c \uc0ac\uc6a9
-            pair = pairs[current_idx[0]]
-            new_bytes = pair.get("_rp_result_bytes")
-            if new_bytes is None:
-                lbl_rp_status.config(text="\uc800\uc7a5\ud560 \uc7ac\uc791\uc5c5 \uacb0\uacfc\uac00 \uc5c6\uc2b5\ub2c8\ub2e4", fg=VF_RED)
+            checks = getattr(self, "_vf_row_checks", {})
+            checked = [i for i, v in checks.items()
+                       if v.get() and 0 <= i < len(pairs)]
+            if checked:
+                targets = [i for i in sorted(set(checked))
+                           if pairs[i].get("_rp_result_bytes") is not None]
+            else:
+                cur = current_idx[0]
+                targets = ([cur] if (0 <= cur < len(pairs)
+                           and pairs[cur].get("_rp_result_bytes") is not None)
+                           else [])
+            if not targets:
+                lbl_rp_status.config(text="저장할 재작업 결과가 없습니다", fg=VF_RED)
                 return
-            input_path = pair.get("input_path", "")
-            if not input_path:
-                lbl_rp_status.config(text="\uc785\ub825 \ud30c\uc77c \uacbd\ub85c \uc5c6\uc74c", fg=VF_RED)
-                return
-            in_path = Path(input_path)
-            out_files = pair.get("output_files", [])
-
-            try:
-                # OUTPUT \ub514\ub809\ud1a0\ub9ac \uacb0\uc815 (\uae30\uc874 \ucd9c\ub825\uc774 \uc788\uc73c\uba74 \uadf8 \ubd80\ubaa8, \uc5c6\uc73c\uba74 input \ubd80\ubaa8/OUTPUT)
-                if out_files:
-                    out_dir = Path(out_files[0]["path"]).parent
-                    # \ub9cc\uc57d path\uac00 OUTPUT/{stem}_1.jpg\uba74 \uadf8\ub300\ub85c, OUTPUT/...\uc774\uba74 \ubd80\ubaa8\ub85c
-                    if out_dir.name in ("original", "1500", "860", "crop"):
-                        out_dir = out_dir.parent
-                else:
-                    out_dir = in_path.parent / "OUTPUT"
-                out_dir.mkdir(parents=True, exist_ok=True)
-                stem = in_path.stem
-
-                # 1\ufe0f\u20e3 \uae30\ubcf8 \ucd9c\ub825 \ud30c\uc77c(\ud30c\uc774\ud504\ub77c\uc778\uc774 \ub9cc\ub4e4\ub358 OUTPUT/{stem}_1.jpg) \uac31\uc2e0
-                primary = out_dir / f"{stem}_1.jpg"
-                primary.write_bytes(new_bytes)
-                saved_parts = [primary.name]
-
-                # 2\ufe0f\u20e3 original/{stem}_1.jpg \uac31\uc2e0
-                orig_dir = out_dir / "original"
-                orig_dir.mkdir(parents=True, exist_ok=True)
-                (orig_dir / f"{stem}_1.jpg").write_bytes(new_bytes)
-                saved_parts.append(f"original/{stem}_1.jpg")
-
-                # 3\ufe0f\u20e3 \uba40\ud2f0\uc0ac\uc774\uc988 (1500/, 860/, crop) \uc7ac\uc0dd\uc131
-                try:
-                    from src.exporter.resizer import MultiSizeResizer
-                    try:
-                        _settings = load_yaml(SETTINGS_PATH) or {}
-                    except Exception:
-                        _settings = {}
-                    resizer = MultiSizeResizer(out_dir, _settings)
-                    seq_n = pair.get("seq_n", current_idx[0] + 1)
-                    is_first = (current_idx[0] == 0)
-                    rs = resizer.make_resized_set(
-                        new_bytes, seq_n=seq_n, is_first=is_first,
-                    )
-                    pair["seq_n"] = seq_n
-                    if rs.get("size_1500"):
-                        saved_parts.append(f"1500/{seq_n}.jpg")
-                    if rs.get("size_860"):
-                        saved_parts.append(f"860/100_{seq_n}.jpg")
-                    if rs.get("crop"):
-                        saved_parts.append("860/100_list.jpg")
-                except Exception as _re:
+            ok_n = 0
+            last_msg = ""
+            for idx in targets:
+                ok, msg = self._vf_save_rework_result(idx)
+                last_msg = msg
+                if ok:
+                    ok_n += 1
                     if hasattr(self, "_log_unified"):
-                        self._log_unified(
-                            f"  \u26a0\ufe0f \uc218\ub3d9 \uc7ac\uc791\uc5c5 \uba40\ud2f0\uc0ac\uc774\uc988 \uc2e4\ud328: {_re}",
-                            "warning")
-
-                # 4\ufe0f\u20e3 \uce74\ub4dc \uc0c1\ud0dc \uac31\uc2e0
-                pair["output_files"] = [{
-                    "path": str(primary),
-                    "size_kb": primary.stat().st_size // 1024,
-                }]
-                pair["success"] = True
-                pair["status"] = "done"
-                fname = in_path.name
-                if fname in self._vf_file_stages:
-                    self._vf_file_stages[fname]["status"] = "done"
-
-                lbl_rp_status.config(
-                    text=f"\u2713 \uc800\uc7a5 \uc644\ub8cc: {', '.join(saved_parts[:4])}"
-                         + ("..." if len(saved_parts) > 4 else ""),
-                    fg=VF_GREEN)
-                btn_rp_confirm.config(state="disabled")
-                # \u2605 \uc800\uc7a5 \uc644\ub8cc \u2192 \uc774 \uce74\ub4dc\uc758 \uc7ac\uc791\uc5c5 \uc784\uc2dc \uacb0\uacfc \uc815\ub9ac
-                pair["_rp_result_bytes"] = None
-                pair["_rp_temp_path"] = None
-                pair["_rp_steps"] = ""
-                pair["_rp_status"] = ""
-                pair["_rp_pending"] = False
-                try:
-                    self._vf_refresh_row(current_idx[0])
-                except Exception:
-                    pass
-                lbl_right_title.config(text="\u2728  \ucc98\ub9ac \uacb0\uacfc")
+                        tname = Path(pairs[idx].get("input_path", "")).name
+                        self._log_unified(f"  ✓ [{tname}] {msg}", "success")
+            if len(targets) > 1:
+                lbl_rp_status.config(text=f"✓ {ok_n}/{len(targets)}개 저장 완료",
+                                     fg=VF_GREEN)
+                for idx in targets:
+                    try:
+                        self._vf_row_checks[idx].set(False)
+                    except Exception:
+                        pass
+            else:
+                lbl_rp_status.config(text=last_msg,
+                                     fg=VF_GREEN if ok_n else VF_RED)
+            btn_rp_confirm.config(state="disabled")
+            try:
+                self._vf_rp_refresh_panel(current_idx[0])
+            except Exception:
+                pass
+            lbl_right_title.config(text="✨  \ucc98\ub9ac \uacb0\uacfc")
+            try:
                 _show(current_idx[0], out_idx[0])
-            except Exception as e:
-                lbl_rp_status.config(text=f"\uc800\uc7a5 \uc2e4\ud328: {e}", fg=VF_RED)
+            except Exception:
+                pass
 
         btn_rp_run.config(command=_on_rp_run)
         btn_rp_confirm.config(command=_on_rp_confirm)
