@@ -3135,7 +3135,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         if done and stage == "저장":
             self._vf_file_stages[key]["status"] = "done"
 
-    def _vf_run_rework_one(self, vf_idx, nukki_mode, use_enhance, use_shadow=False):
+    def _vf_run_rework_one(self, vf_idx, nukki_mode, use_enhance,
+                           use_shadow=False, on_complete=None):
         """단일 카드 재작업 워커 — 결과를 pair에 영구 저장 (배치/단일 공용).
 
         nukki_mode: "없음" | "Photoroom" | "RemoveBG"
@@ -3246,6 +3247,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     if hasattr(self, "_log_unified"):
                         self._log_unified(
                             "  ✓ [" + tname + "] 재작업 완료 (저장 대기)", "success")
+                    if on_complete:
+                        try:
+                            on_complete(vf_idx)
+                        except Exception:
+                            pass
                 self.after(0, _done)
 
             except Exception as e:
@@ -3407,7 +3413,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         # 보정
         erow = tk.Frame(f, bg="#1e1e2e")
-        erow.pack(fill="x", pady=(0, 14))
+        erow.pack(fill="x", pady=(0, 8))
         tk.Label(erow, text="보정:", bg="#1e1e2e", fg="#cdd6f4",
                  font=("맑은 고딕", 10), width=6, anchor="w").pack(side="left")
         var_enhance = tk.BooleanVar(value=True)   # 기본 체크
@@ -3418,6 +3424,22 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             cursor="hand2",
         ).pack(side="left")
 
+        # 저장 방식
+        arow = tk.Frame(f, bg="#1e1e2e")
+        arow.pack(fill="x", pady=(0, 14))
+        tk.Label(arow, text="저장:", bg="#1e1e2e", fg="#cdd6f4",
+                 font=("맑은 고딕", 10), width=6, anchor="w").pack(side="left")
+        var_autosave = tk.BooleanVar(value=True)  # 기본: 완료 후 자동 파일 교체
+        tk.Checkbutton(
+            arow, text="완료 후 자동 저장(파일 교체)", variable=var_autosave,
+            bg="#1e1e2e", fg="#cdd6f4", selectcolor="#313244",
+            activebackground="#1e1e2e", font=("맑은 고딕", 10),
+            cursor="hand2",
+        ).pack(side="left")
+        tk.Label(f, text="※ 자동 저장 해제 시: 결과는 미저장 상태로 보관되며 카드에서 확인 후 저장",
+                 bg="#1e1e2e", fg="#6c7086",
+                 font=("맑은 고딕", 8)).pack(anchor="w", pady=(0, 10))
+
         # 버튼
         brow = tk.Frame(f, bg="#1e1e2e")
         brow.pack(fill="x")
@@ -3426,14 +3448,28 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             nukki = var_nukki.get()
             enhance = var_enhance.get()
             shadow = var_shadow.get()
+            autosave = var_autosave.get()
             dlg.destroy()
             if hasattr(self, "_log_unified"):
                 self._log_unified(
                     f"📋 선택 재작업 시작 — {len(checked_idxs)}개 "
                     f"(누끼={nukki}, 그림자={'O' if shadow else 'X'}, "
-                    f"보정={'O' if enhance else 'X'})", "info")
+                    f"보정={'O' if enhance else 'X'}, "
+                    f"자동저장={'O' if autosave else 'X'})", "info")
+
+            def _autosave_cb(idx):
+                ok, msg = self._vf_save_rework_result(idx)
+                if hasattr(self, "_log_unified"):
+                    tname = Path(self._viewfinder_pairs[idx]
+                                 .get("input_path", "")).name
+                    self._log_unified(
+                        f"  {'✓' if ok else '⚠️'} [{tname}] {msg}",
+                        "success" if ok else "warning")
+
+            cb = _autosave_cb if autosave else None
             for i in checked_idxs:
-                self._vf_run_rework_one(i, nukki, enhance, shadow)
+                self._vf_run_rework_one(i, nukki, enhance, shadow,
+                                        on_complete=cb)
                 # 체크 해제 (작업 큐에 들어갔으므로)
                 try:
                     self._vf_row_checks[i].set(False)
@@ -3662,6 +3698,14 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             activebackground=VF_ACCENT, activeforeground=VF_BG,
             bd=0, padx=8, pady=2, cursor="hand2",
         ).pack(side="left")
+        # 수동 재작업 — 클릭 시 상세 옵션 팝업 (체크된 이미지에 적용)
+        tk.Button(
+            check_bar, text="✏️ 수동 재작업",
+            command=lambda: self._vf_batch_rework(),
+            font=(FONT_FAMILY, 8, "bold"), bg="#e67e22", fg="white",
+            activebackground="#d35400", activeforeground="white",
+            bd=0, padx=10, pady=2, cursor="hand2",
+        ).pack(side="right")
 
         # 파일 리스트 영역
         list_frame = tk.Frame(left, bg=VF_BG)
@@ -4312,78 +4356,14 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             shadow_on = vi.get("needs_shadow", False)
             lbl_vision.config(text=text, fg=VF_ACCENT if shadow_on else VF_TEXT_DIM)
 
-        # ── 수동 재처리 패널 ──────────────────────────────────────────────────
+        # ── 선택 카드 액션 (현재 보고 있는 카드에 적용) ──
+        # 수동 재작업 상세 컨트롤은 좌측 상단 [✏️ 수동 재작업] 버튼 → 팝업으로 이동
         rp_panel = tk.Frame(right, bg=VF_BG)
         rp_panel.pack(fill="x", padx=12, pady=(6, 0))
-
         tk.Frame(rp_panel, bg=VF_BORDER, height=1).pack(fill="x", pady=(0, 6))
 
-        rp_hdr = tk.Frame(rp_panel, bg=VF_BG)
-        rp_hdr.pack(fill="x")
-        tk.Label(rp_hdr, text="\u270f\ufe0f  \uc218\ub3d9 \uc7ac\uc791\uc5c5",
-                 bg=VF_BG, fg="#bac2de", font=(FONT_FAMILY, 10, "bold")).pack(side="left")
-        # 적용 대상: 체크된 이미지(없으면 현재 이미지)
-        tk.Label(rp_hdr, text="체크된 이미지에 적용 (없으면 현재 이미지)",
-                 bg=VF_BG, fg=VF_TEXT_FAINT,
-                 font=(FONT_FAMILY, 8)).pack(side="right")
-
-        # 누끼 방식 선택
-        nukki_row = tk.Frame(rp_panel, bg=VF_BG)
-        nukki_row.pack(fill="x", pady=(4, 0))
-        tk.Label(nukki_row, text="\ub204\ub07c:", bg=VF_BG, fg=VF_TEXT_DIM,
-                 font=(FONT_FAMILY, 9), width=5, anchor="w").pack(side="left")
-        rp_nukki_var = tk.StringVar(value="\uc5c6\uc74c")
-        for label in ["\uc5c6\uc74c", "Photoroom", "RemoveBG"]:
-            tk.Radiobutton(nukki_row, text=label, variable=rp_nukki_var, value=label,
-                           bg=VF_BG, fg=VF_TEXT, selectcolor=VF_CARD,
-                           activebackground=VF_BG, font=(FONT_FAMILY, 9),
-                           cursor="hand2").pack(side="left", padx=(0, 8))
-
-        # 그림자 선택 (Photoroom 누끼일 때만 적용)
-        shadow_row = tk.Frame(rp_panel, bg=VF_BG)
-        shadow_row.pack(fill="x", pady=(2, 0))
-        tk.Label(shadow_row, text="그림자:", bg=VF_BG, fg=VF_TEXT_DIM,
-                 font=(FONT_FAMILY, 9), width=5, anchor="w").pack(side="left")
-        rp_shadow_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(shadow_row, text="그림자 생성 (Photoroom v2)",
-                       variable=rp_shadow_var,
-                       bg=VF_BG, fg=VF_TEXT, selectcolor=VF_CARD,
-                       activebackground=VF_BG, font=(FONT_FAMILY, 9),
-                       cursor="hand2").pack(side="left")
-
-        # 보정 선택
-        enhance_row = tk.Frame(rp_panel, bg=VF_BG)
-        enhance_row.pack(fill="x", pady=(2, 0))
-        tk.Label(enhance_row, text="\ubcf4\uc815:", bg=VF_BG, fg=VF_TEXT_DIM,
-                 font=(FONT_FAMILY, 9), width=5, anchor="w").pack(side="left")
-        rp_enhance_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(enhance_row, text="Claid \ubcf4\uc815", variable=rp_enhance_var,
-                       bg=VF_BG, fg=VF_TEXT, selectcolor=VF_CARD,
-                       activebackground=VF_BG, font=(FONT_FAMILY, 9),
-                       cursor="hand2").pack(side="left")
-
-        # 버튼 행
-        rp_btn_row = tk.Frame(rp_panel, bg=VF_BG)
-        rp_btn_row.pack(fill="x", pady=(6, 4))
-
-        lbl_rp_status = tk.Label(rp_btn_row, text="", bg=VF_BG, fg=VF_TEXT_DIM,
-                                  font=(FONT_FAMILY, 8), anchor="w")
-        lbl_rp_status.pack(side="left", fill="x", expand=True)
-
-        btn_rp_confirm = tk.Button(rp_btn_row,
-                                    text="\u2713 \uc218\uc815\uc644\ub8cc (\ud30c\uc77c \uad50\uccb4)",
-                                    bg="#166534", fg="white", font=(FONT_FAMILY, 9),
-                                    bd=0, padx=10, pady=3, cursor="hand2",
-                                    state="disabled")
-        btn_rp_confirm.pack(side="right", padx=(4, 0))
-
-        btn_rp_run = tk.Button(rp_btn_row, text="\u25b6 \uc7ac\uc791\uc5c5 \uc2e4\ud589",
-                                bg="#2563eb", fg="white", font=(FONT_FAMILY, 9),
-                                bd=0, padx=10, pady=3, cursor="hand2")
-        btn_rp_run.pack(side="right", padx=(4, 0))
-        # ── 통합 액션 (선택된 카드에 적용) ──
         action_row = tk.Frame(rp_panel, bg=VF_BG)
-        action_row.pack(fill="x", pady=(8, 4))
+        action_row.pack(fill="x", pady=(2, 4))
         tk.Label(action_row, text="선택 카드 액션:",
                  bg=VF_BG, fg=VF_TEXT_DIM, font=(FONT_FAMILY, 9)
                  ).pack(side="left", padx=(0, 8))
@@ -4406,145 +4386,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             bg="#27ae60", fg="white", padx=8, bd=0, cursor="hand2",
         ).pack(side="left", padx=2)
 
-
-        def _rp_refresh_panel(idx):
-            """현재 보고 있는 카드(idx)의 재작업 상태에 맞춰 패널 UI 갱신."""
-            pairs = self._viewfinder_pairs
-            if not pairs or idx < 0 or idx >= len(pairs):
-                return
-            pair = pairs[idx]
-            running = pair.get("_rp_running", False)
-            result = pair.get("_rp_result_bytes")
-            temp_path = pair.get("_rp_temp_path")
-            steps_text = pair.get("_rp_steps", "")
-            if running:
-                btn_rp_run.config(state="disabled", text="⏳ 처리 중...")
-                btn_rp_confirm.config(state="disabled")
-                lbl_rp_status.config(
-                    text=pair.get("_rp_status", "처리 중..."), fg=VF_ACCENT)
-            elif result:
-                btn_rp_run.config(state="normal", text="▶ 재작업 실행")
-                btn_rp_confirm.config(state="normal")
-                size_kb = len(result) // 1024
-                lbl_rp_status.config(
-                    text="✓ 재작업 완료(미저장): "
-                         + steps_text + " (" + str(size_kb) + "KB)",
-                    fg=VF_GREEN)
-                if temp_path and Path(temp_path).exists():
-                    try:
-                        from PIL import Image as _PILImage
-                        _img = _PILImage.open(temp_path)
-                        _fit_image(cv_proc, _img)
-                        lbl_right_title.config(text="✏️  재처리 결과 (미저장)")
-                        lbl_proc_info.config(text="재처리  ·  " + str(size_kb) + "KB")
-                    except Exception:
-                        pass
-            else:
-                btn_rp_run.config(state="normal", text="▶ 재작업 실행")
-                btn_rp_confirm.config(state="disabled")
-                lbl_rp_status.config(text="")
-
-        self._vf_rp_refresh_panel = _rp_refresh_panel
-
-        def _rp_target_indices():
-            """체크된 카드 인덱스 목록 (없으면 현재 카드)."""
-            checks = getattr(self, "_vf_row_checks", {})
-            idxs = [i for i, v in checks.items()
-                    if v.get() and 0 <= i < len(self._viewfinder_pairs)]
-            if not idxs:
-                idxs = [current_idx[0]]
-            return sorted(set(idxs))
-
-        def _on_rp_run():
-            pairs = self._viewfinder_pairs
-            if not pairs:
-                return
-            nukki_mode = rp_nukki_var.get()
-            use_enhance = rp_enhance_var.get()
-            use_shadow = rp_shadow_var.get()
-            targets = _rp_target_indices()
-            started = 0
-            for idx in targets:
-                if idx < 0 or idx >= len(pairs):
-                    continue
-                if pairs[idx].get("_rp_running"):
-                    continue
-                if not Path(pairs[idx].get("input_path", "")).exists():
-                    continue
-                self._vf_run_rework_one(idx, nukki_mode, use_enhance, use_shadow)
-                started += 1
-            if started == 0:
-                lbl_rp_status.config(text="재작업할 대상이 없습니다", fg=VF_RED)
-                return
-            if len(targets) > 1:
-                lbl_rp_status.config(
-                    text=f"▶ {started}개 이미지 재작업 시작 "
-                         f"(누끼={nukki_mode}, 그림자={'O' if use_shadow else 'X'}, "
-                         f"보정={'O' if use_enhance else 'X'})",
-                    fg=VF_ACCENT)
-                if hasattr(self, "_log_unified"):
-                    self._log_unified(
-                        f"📋 수동 재작업 시작 — {started}개 "
-                        f"(누끼={nukki_mode}, 그림자={'O' if use_shadow else 'X'}, "
-                        f"보정={'O' if use_enhance else 'X'})", "info")
-                for idx in targets:
-                    try:
-                        self._vf_row_checks[idx].set(False)
-                    except Exception:
-                        pass
-
-        def _on_rp_confirm():
-            pairs = self._viewfinder_pairs
-            if not pairs:
-                return
-            checks = getattr(self, "_vf_row_checks", {})
-            checked = [i for i, v in checks.items()
-                       if v.get() and 0 <= i < len(pairs)]
-            if checked:
-                targets = [i for i in sorted(set(checked))
-                           if pairs[i].get("_rp_result_bytes") is not None]
-            else:
-                cur = current_idx[0]
-                targets = ([cur] if (0 <= cur < len(pairs)
-                           and pairs[cur].get("_rp_result_bytes") is not None)
-                           else [])
-            if not targets:
-                lbl_rp_status.config(text="저장할 재작업 결과가 없습니다", fg=VF_RED)
-                return
-            ok_n = 0
-            last_msg = ""
-            for idx in targets:
-                ok, msg = self._vf_save_rework_result(idx)
-                last_msg = msg
-                if ok:
-                    ok_n += 1
-                    if hasattr(self, "_log_unified"):
-                        tname = Path(pairs[idx].get("input_path", "")).name
-                        self._log_unified(f"  ✓ [{tname}] {msg}", "success")
-            if len(targets) > 1:
-                lbl_rp_status.config(text=f"✓ {ok_n}/{len(targets)}개 저장 완료",
-                                     fg=VF_GREEN)
-                for idx in targets:
-                    try:
-                        self._vf_row_checks[idx].set(False)
-                    except Exception:
-                        pass
-            else:
-                lbl_rp_status.config(text=last_msg,
-                                     fg=VF_GREEN if ok_n else VF_RED)
-            btn_rp_confirm.config(state="disabled")
-            try:
-                self._vf_rp_refresh_panel(current_idx[0])
-            except Exception:
-                pass
-            lbl_right_title.config(text="✨  \ucc98\ub9ac \uacb0\uacfc")
-            try:
-                _show(current_idx[0], out_idx[0])
-            except Exception:
-                pass
-
-        btn_rp_run.config(command=_on_rp_run)
-        btn_rp_confirm.config(command=_on_rp_confirm)
+        self._vf_rp_refresh_panel = lambda i: None
         # ─────────────────────────────────────────────────────────────────────
 
         # 키보드 힌트
