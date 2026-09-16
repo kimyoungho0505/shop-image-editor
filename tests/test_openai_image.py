@@ -15,6 +15,8 @@ from src.openai_image.client import (
     GPTImage2Result,
     VerificationResult,
     GPTImage2NoCreditError,
+    DEFAULT_MODEL,
+    snap_size,
 )
 
 
@@ -47,10 +49,12 @@ class TestEnhance:
         assert r.quality == "medium"
         assert r.prompt_used == "enhance please"
         args, kwargs = m.call_args
-        assert kwargs["model"] == "gpt-image-2"
+        assert kwargs["model"] == DEFAULT_MODEL == "gpt-image-2.5-flare"
         assert kwargs["prompt"] == "enhance please"
         assert kwargs["quality"] == "medium"
         assert kwargs["size"] == "1024x1024"
+        # gpt-image-2/2.5 는 input_fidelity 를 지원하지 않는다 → 보내지 않는다
+        assert "input_fidelity" not in kwargs
 
     def test_enhance_passes_quality_high(self):
         c = GPTImage2Client(api_key="sk-test")
@@ -154,3 +158,73 @@ class TestEnhanceAndVerify:
                 run_verification=False,
             )
         assert ver is None
+
+
+class TestModelAndSize:
+    """gpt-image-2.5 전환 — 모델 선택 / 품질 폴백 / 크기 보정."""
+
+    def _resp(self):
+        r = MagicMock()
+        r.data = [MagicMock(b64_json=_fake_b64_image())]
+        r.usage = MagicMock(output_tokens=439)
+        return r
+
+    def test_model_override_per_call(self):
+        c = GPTImage2Client(api_key="sk-test")
+        with patch.object(c._client.images, "edit",
+                          return_value=self._resp()) as m:
+            r = c.enhance(b"fakePNG", prompt="x",
+                          model="gpt-image-2.5-sunburst", size="1024x1024")
+        assert m.call_args.kwargs["model"] == "gpt-image-2.5-sunburst"
+        assert r.model == "gpt-image-2.5-sunburst"
+
+    def test_legacy_model_downgrades_xhigh(self):
+        """2.0 모델에 xhigh/max 가 오면 high 로 내려간다."""
+        c = GPTImage2Client(api_key="sk-test", model="gpt-image-2")
+        with patch.object(c._client.images, "edit",
+                          return_value=self._resp()) as m:
+            c.enhance(b"fakePNG", prompt="x", quality="max",
+                      size="1024x1024")
+        assert m.call_args.kwargs["quality"] == "high"
+
+    def test_xhigh_kept_for_25(self):
+        c = GPTImage2Client(api_key="sk-test")
+        with patch.object(c._client.images, "edit",
+                          return_value=self._resp()) as m:
+            c.enhance(b"fakePNG", prompt="x", quality="xhigh",
+                      size="1024x1024")
+        assert m.call_args.kwargs["quality"] == "xhigh"
+
+    def test_size_match_uses_source_dimensions(self):
+        """size="match" 면 원본 크기를 16의 배수로 맞춰 보낸다 (2250 → 2256)."""
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", (2250, 2250), "white").save(buf, format="PNG")
+        c = GPTImage2Client(api_key="sk-test")
+        with patch.object(c._client.images, "edit",
+                          return_value=self._resp()) as m:
+            c.enhance(buf.getvalue(), prompt="x", size="match")
+        assert m.call_args.kwargs["size"] == "2256x2256"
+
+    def test_cost_from_usage_tokens(self):
+        """비용은 응답 usage 의 출력 토큰으로 계산한다 ($30/1M)."""
+        c = GPTImage2Client(api_key="sk-test")
+        with patch.object(c._client.images, "edit", return_value=self._resp()):
+            r = c.enhance(b"fakePNG", prompt="x", size="1024x1024")
+        assert r.output_tokens == 439
+        # 표시용으로 소수 4자리에서 반올림한다
+        assert abs(r.cost_estimate_usd - 439 * 30 / 1_000_000) < 1e-4
+
+    @pytest.mark.parametrize("wh,expected", [
+        ((2250, 2250), "2256x2256"),
+        ((1024, 1024), "1024x1024"),
+        ((5000, 5000), "2880x2880"),      # 최대 픽셀(8.29M) 이내로 축소
+        ((400, 400), "816x816"),          # 최소 픽셀(0.65M) 이상으로 확대
+    ])
+    def test_snap_size(self, wh, expected):
+        s = snap_size(*wh)
+        assert s == expected
+        w, h = (int(v) for v in s.split("x"))
+        assert w % 16 == 0 and h % 16 == 0
+        assert 655_360 <= w * h <= 8_294_400
+        assert max(w, h) <= 3840

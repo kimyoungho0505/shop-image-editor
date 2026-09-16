@@ -129,6 +129,19 @@ CONFIG_DIR = USER_CONFIG_DIR
 PROMPTS_PATH = CONFIG_DIR / "prompts.yaml"
 SETTINGS_PATH = CONFIG_DIR / "settings.yaml"
 IMAGE2_PROMPTS_PATH = CONFIG_DIR / "image2_prompts.yaml"
+
+# image-2.5 모델 목록 — openai 패키지가 없어도 GUI는 떠야 하므로 폴백을 둔다
+try:
+    from src.openai_image.client import (
+        DEFAULT_MODEL as IMAGE2_DEFAULT_MODEL,
+        MODELS as IMAGE2_MODELS,
+        LEGACY_MODELS as IMAGE2_LEGACY_MODELS,
+    )
+except Exception:                                      # pragma: no cover
+    IMAGE2_DEFAULT_MODEL = "gpt-image-2.5-flare"
+    IMAGE2_MODELS = ("gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
+                     "gpt-image-2")
+    IMAGE2_LEGACY_MODELS = ("gpt-image-2",)
 CATEGORIES_PATH = CONFIG_DIR / "categories.yaml"
 SHADOW_HINTS_PATH = CONFIG_DIR / "shadow_hints.yaml"
 ENV_PATH = USER_DIR / ".env"   # 저장은 항상 사용자 폴더 (EXE 옆 또는 소스 루트)
@@ -754,25 +767,47 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self._build_image2_section(self._cond_inner)
 
     def _build_image2_section(self, parent):
-        """조건 탭 하단 image-2.0 카테고리별 프롬프트 섹션."""
+        """조건 탭 하단 image-2.5 카테고리별 프롬프트 섹션."""
         # 구분선
         ttk.Separator(parent, orient="horizontal").pack(
             fill="x", padx=12, pady=(20, 8))
 
         # 헤더
         hdr = tk.Label(
-            parent, text="✨ image-2.0 카테고리별 프롬프트",
+            parent, text="✨ image-2.5 카테고리별 프롬프트",
             font=("맑은 고딕", 11, "bold"))
         hdr.pack(anchor="w", padx=12, pady=(0, 6))
 
-        # 글로벌 옵션
+        # 글로벌 옵션 — 1행: 모델 / 품질 / 출력 크기
         glob = tk.Frame(parent); glob.pack(fill="x", padx=12, pady=4)
+        tk.Label(glob, text="모델:").pack(side="left")
+        self.var_image2_model = tk.StringVar(value=IMAGE2_DEFAULT_MODEL)
+        ttk.Combobox(
+            glob, textvariable=self.var_image2_model,
+            values=list(IMAGE2_MODELS), state="readonly", width=22,
+        ).pack(side="left", padx=(4, 16))
+
         tk.Label(glob, text="기본 품질:").pack(side="left")
         self.var_image2_default_quality = tk.StringVar(value="medium")
         ttk.Combobox(
             glob, textvariable=self.var_image2_default_quality,
-            values=["low", "medium", "high"], state="readonly", width=10,
+            values=["low", "medium", "high", "xhigh", "max"],
+            state="readonly", width=10,
         ).pack(side="left", padx=(4, 16))
+
+        tk.Label(glob, text="출력 크기:").pack(side="left")
+        self.var_image2_size = tk.StringVar(value="match")
+        ttk.Combobox(
+            glob, textvariable=self.var_image2_size,
+            values=["match", "1024x1024", "1536x1024", "1024x1536",
+                    "2048x2048", "2256x2256"],
+            state="readonly", width=12,
+        ).pack(side="left", padx=4)
+        tk.Label(glob, text="(match=원본 크기에 맞춤)",
+                 fg="#888", font=("맑은 고딕", 8)).pack(side="left")
+
+        # 2행: 검증 모델 / 충실도 / 차단
+        glob = tk.Frame(parent); glob.pack(fill="x", padx=12, pady=4)
 
         tk.Label(glob, text="검증 모델:").pack(side="left")
         self.var_image2_verify_model = tk.StringVar(value="gpt-4o-mini")
@@ -923,6 +958,9 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         if hasattr(self, "var_image2_default_quality"):
             self.var_image2_default_quality.set(
                 cfg.get("default_quality", "medium"))
+            self.var_image2_model.set(
+                cfg.get("model", IMAGE2_DEFAULT_MODEL))
+            self.var_image2_size.set(cfg.get("default_size", "match"))
             self.var_image2_verify_model.set(
                 cfg.get("verification", {}).get("model", "gpt-4o-mini"))
             self.var_image2_block_unsafe.set(
@@ -971,6 +1009,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         cfg = data.setdefault("image2", {})
         cfg["default_quality"] = self.var_image2_default_quality.get()
+        cfg["model"] = self.var_image2_model.get()
+        cfg["default_size"] = self.var_image2_size.get()
         cfg.setdefault("verification", {})["model"] = self.var_image2_verify_model.get()
         cfg["verification"]["block_on_unsafe"] = bool(self.var_image2_block_unsafe.get())
         prompts = cfg.setdefault("prompts", {})
@@ -983,7 +1023,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         save_yaml(IMAGE2_PROMPTS_PATH, data)
         messagebox.showinfo("저장 완료",
-                            f"image-2.0 프롬프트 ({sel})가 저장되었습니다.")
+                            f"image-2.5 프롬프트 ({sel})가 저장되었습니다.")
 
     def _load_routing_rules(self):
         """config/routing_rules.yaml \ub85c\ub4dc \u2192 v2 \uc2a4\ud0a4\ub9c8 dict \ubc18\ud658."""
@@ -2385,7 +2425,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                         "size_860":  str(rs["size_860"])  if rs["size_860"]  else None,
                         "crop":      str(rs["crop"])      if rs["crop"]      else None,
                     }
-                    # 뷰파인더 카드에 순번 저장 (image-2.0 최종 저장 시 동일 순번 사용)
+                    # 뷰파인더 카드에 순번 저장 (image-2.5 최종 저장 시 동일 순번 사용)
                     if 0 <= vf_idx < len(self._viewfinder_pairs):
                         self._viewfinder_pairs[vf_idx]["seq_n"] = n
                     extra = ", 860/100_list.jpg" if rs["crop"] is not None else ""
@@ -3144,7 +3184,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             "output_files": [],
             "success": False,
             "status": "processing",
-            # ── image-2.0 사후 보정 데이터 ──
+            # ── image-2.5 사후 보정 데이터 ──
             "image2_results": [],         # list of dict per attempt
             "image2_selected_idx": -1,    # -1=편집본, 0+=image2_results 인덱스
             "image2_stages": [],          # 동적 스테이지 표시용
@@ -3733,7 +3773,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         dlg.configure(bg=VF_BG)
 
         current_idx = [0]
-        self._vf_current_idx_ref = current_idx  # 외부 접근용 (image-2.0 완료 시 탭 재구성)
+        self._vf_current_idx_ref = current_idx  # 외부 접근용 (image-2.5 완료 시 탭 재구성)
         out_idx = [0]
         photo_refs = []
         self._vf_row_checks = {}   # 일괄 재작업용 체크박스 상태 (idx → BooleanVar)
@@ -4001,7 +4041,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 pip.pack(side="left", fill="x", expand=True, padx=1)
                 pips.append(pip)
 
-            # 신규: 동적 스테이지 추가용 참조 저장 (image-2.0 등)
+            # 신규: 동적 스테이지 추가용 참조 저장 (image-2.5 등)
             self._vf_stage_rows = getattr(self, "_vf_stage_rows", {})
             self._vf_stage_rows[idx] = {
                 "frame": pip_frame,
@@ -4030,7 +4070,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                                fg=VF_TEXT_FAINT, font=(FONT_FAMILY, 8))
                 val_icons[key] = lbl
 
-            # ── image-2.0 결과 라디오 영역 ──
+            # ── image-2.5 결과 라디오 영역 ──
             self._vf_image2_rows = getattr(self, "_vf_image2_rows", {})
             i2_frame = tk.Frame(content, bg=VF_BG)
             i2_frame.pack(fill="x", padx=(20, 2), pady=(4, 0))
@@ -4281,7 +4321,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                  font=(FONT_FAMILY, 11, "bold"))
         lbl_right_title.pack(side="left", expand=True)
 
-        # 단계별 보기 탭 바 (정적 4개 + 카드별 image-2.0 결과)
+        # 단계별 보기 탭 바 (정적 4개 + 카드별 image-2.5 결과)
         _STAGE_TABS_STATIC = ["원본", "누끼+그림자", "보정", "최종"]
         stage_tab_frame = tk.Frame(right, bg=VF_BG)
         stage_tab_frame.pack(fill="x", padx=12, pady=(4, 4))
@@ -4298,20 +4338,20 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             _show(current_idx[0], out_idx[0])
 
         def _rebuild_stage_tabs(vf_idx: int = -1):
-            """현재 선택된 카드의 image-2.0 결과 수에 따라 탭 재구성."""
+            """현재 선택된 카드의 image-2.5 결과 수에 따라 탭 재구성."""
             for w in stage_tab_frame.winfo_children():
                 w.destroy()
             stage_tab_btns.clear()
 
             tabs = list(_STAGE_TABS_STATIC)
-            # 현재 카드의 image-2.0 결과를 추가 탭으로
+            # 현재 카드의 image-2.5 결과를 추가 탭으로
             if 0 <= vf_idx < len(self._viewfinder_pairs):
                 results = self._viewfinder_pairs[vf_idx].get("image2_results", [])
                 for i in range(len(results)):
-                    tabs.append(f"image-2.0 ({i+1}차)")
+                    tabs.append(f"image-2.5 ({i+1}차)")
 
             for tab in tabs:
-                is_image2 = tab.startswith("image-2.0")
+                is_image2 = tab.startswith("image-2.5")
                 btn = tk.Button(
                     stage_tab_frame, text=tab,
                     bg=VF_CARD, fg=VF_TEXT,
@@ -4330,7 +4370,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 stage_mode[0] = cur
             stage_tab_btns[cur].configure(bg=VF_ACCENT, fg=VF_BG)
 
-        # 외부 메서드에서 호출할 수 있도록 노출 (image-2.0 결과 추가 시 재구성용)
+        # 외부 메서드에서 호출할 수 있도록 노출 (image-2.5 결과 추가 시 재구성용)
         self._vf_rebuild_stage_tabs = _rebuild_stage_tabs
 
         # 초기 탭 (정적 4개만)
@@ -4485,7 +4525,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             bg="#34495e", fg="white", padx=8, bd=0, cursor="hand2",
         ).pack(side="left", padx=2)
         tk.Button(
-            action_row, text="✨ image-2.0",
+            action_row, text="✨ image-2.5",
             command=lambda: self._vf_open_image2_dialog(current_idx[0]),
             font=(FONT_FAMILY, 9),
             bg="#9b59b6", fg="white", padx=8, bd=0, cursor="hand2",
@@ -4596,12 +4636,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
             inp = pair["input_path"]
             fname = Path(inp).name
-            # 카드 변경 시 stage 탭 재구성 (image-2.0 결과 반영)
+            # 카드 변경 시 stage 탭 재구성 (image-2.5 결과 반영)
             try:
                 self._vf_rebuild_stage_tabs(idx)
             except Exception:
                 pass
-            sm = stage_mode[0]  # "원본", "누끼+그림자", "보정", "최종", 또는 "image-2.0 (N차)"
+            sm = stage_mode[0]  # "원본", "누끼+그림자", "보정", "최종", 또는 "image-2.5 (N차)"
             stage_order = ["원본", "누끼+그림자", "보정", "최종"]
             si_idx = stage_order.index(sm) if sm in stage_order else 0
             # 왼쪽: 이전 단계 (원본 탭이면 입력 파일, 그 외면 이전 단계)
@@ -4632,8 +4672,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     lbl_orig_info.config(text="")
 
             # 우측 (현재 단계)
-            # image-2.0 탭이면 — 좌측은 편집본(최종), 우측은 image-2.0 결과
-            if sm.startswith("image-2.0"):
+            # image-2.5 탭이면 — 좌측은 편집본(최종), 우측은 image-2.5 결과
+            if sm.startswith("image-2.5"):
                 import re as _re_i2
                 import io as _io_i2
                 m = _re_i2.search(r"\((\d+)차\)", sm)
@@ -4663,7 +4703,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 else:
                     _show_placeholder(cv_orig, "편집본 없음", "\U0001f5bc️")
                     lbl_orig_info.config(text="")
-                # 우측: image-2.0 결과
+                # 우측: image-2.5 결과
                 lbl_right_title.config(text=f"✨  {sm}")
                 if 0 <= i2_idx < len(results):
                     r_dict = results[i2_idx]
@@ -4920,10 +4960,10 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                   padx=14, pady=4).pack(side="left", padx=4)
 
     # ─────────────────────────────────────────────
-    # image-2.0 사후 보정 헬퍼 (Tasks 6 + 7)
+    # image-2.5 사후 보정 헬퍼 (Tasks 6 + 7)
     # ─────────────────────────────────────────────
     def _vf_render_image2_options(self, vf_idx: int):
-        """카드의 image-2.0 결과 토글 영역을 다시 그린다."""
+        """카드의 image-2.5 결과 토글 영역을 다시 그린다."""
         if not hasattr(self, "_vf_image2_rows"):
             return
         if vf_idx not in self._vf_image2_rows:
@@ -4961,7 +5001,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             anchor="w",
         ).pack(anchor="w")
 
-        # image-2.0 결과들
+        # image-2.5 결과들
         for i, r in enumerate(item.get("image2_results", [])):
             v = r.get("verification") or {}
             if v:
@@ -4973,7 +5013,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             row = tk.Frame(frm, bg=bg)
             row.pack(fill="x", anchor="w", pady=(1, 0))
             tk.Radiobutton(
-                row, text=f"image-2.0 {r.get('quality','?')} ({i+1}차)",
+                row, text=f"image-2.5 {r.get('quality','?')} ({i+1}차)",
                 variable=sel_var, value=i,
                 command=lambda x=i: self._vf_image2_select(vf_idx, x),
                 font=("맑은 고딕", 9),
@@ -5012,7 +5052,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             self._viewfinder_pairs[vf_idx]["image2_selected_idx"] = choice_idx
 
     def _vf_image2_preview(self, vf_idx: int, result_idx: int):
-        """image-2.0 결과 미리보기 — 편집본 vs 보정본 좌우 비교."""
+        """image-2.5 결과 미리보기 — 편집본 vs 보정본 좌우 비교."""
         import io as _io
         from PIL import Image as _Image, ImageTk as _ImageTk
 
@@ -5051,7 +5091,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         v = r.get("verification") or {}
         v_label = "✅ 검증 통과" if v.get("safe") else (
             "⚠️ 변형 감지" if v else "ℹ️ 검증 없음")
-        dlg.title(f"image-2.0 미리보기 — {r.get('quality','?')} ({result_idx+1}차) {v_label}")
+        dlg.title(f"image-2.5 미리보기 — {r.get('quality','?')} ({result_idx+1}차) {v_label}")
         dlg.configure(bg="#1e1e2e")
 
         # 사이즈: 화면 85%
@@ -5070,7 +5110,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             font=("맑은 고딕", 11, "bold"),
         ).pack(side="left", expand=True)
         tk.Label(
-            hdr, text=f"✨ image-2.0 {r.get('quality','?')} ({result_idx+1}차)",
+            hdr, text=f"✨ image-2.5 {r.get('quality','?')} ({result_idx+1}차)",
             bg="#1e1e2e", fg="#f9e2af",
             font=("맑은 고딕", 11, "bold"),
         ).pack(side="left", expand=True)
@@ -5130,7 +5170,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         cv_r.bind("<Configure>", _redraw)
 
     def _vf_image2_detect_category(self, vf_idx: int) -> str:
-        """Vision 분석 결과에서 image-2.0 프롬프트 카테고리 매핑."""
+        """Vision 분석 결과에서 image-2.5 프롬프트 카테고리 매핑."""
         if vf_idx >= len(self._viewfinder_pairs):
             return "default"
         item = self._viewfinder_pairs[vf_idx]
@@ -5148,7 +5188,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         return "default"
 
     def _vf_image2_get_source(self, vf_idx: int):
-        """image-2.0 보정 원본 경로 — 항상 OUTPUT/original/{stem}_1.jpg에서 로드."""
+        """image-2.5 보정 원본 경로 — 항상 OUTPUT/original/{stem}_1.jpg에서 로드."""
         if vf_idx >= len(self._viewfinder_pairs):
             return None
         item = self._viewfinder_pairs[vf_idx]
@@ -5166,7 +5206,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         return None
 
     def _vf_open_image2_dialog(self, vf_idx: int):
-        """image-2.0 보정 다이얼로그 — 프롬프트/품질 입력."""
+        """image-2.5 보정 다이얼로그 — 프롬프트/품질 입력."""
         if vf_idx >= len(self._viewfinder_pairs):
             return
 
@@ -5188,9 +5228,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         prompts = cfg.get("prompts", {})
         cat_default = self._vf_image2_detect_category(vf_idx)
         default_quality = cfg.get("default_quality", "medium")
+        cur_model = cfg.get("model", IMAGE2_DEFAULT_MODEL)
+        cur_size = cfg.get("default_size", "match")
 
         dlg = tk.Toplevel(self._vf_dlg)
-        dlg.title(f"✨ image-2.0 보정 — {orig_path.name}")
+        dlg.title(f"✨ image-2.5 보정 — {orig_path.name}")
         dlg.resizable(False, False)
         dlg.grab_set()
 
@@ -5230,15 +5272,46 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         cat_combo.bind("<<ComboboxSelected>>", lambda _e: _load_prompt())
         _load_prompt()
 
-        # 품질
+        # 모델 / 출력 크기 (이번 1회만 변경 가능)
+        row = tk.Frame(f); row.pack(fill="x", pady=(10, 0))
+        tk.Label(row, text="모델:", width=10, anchor="w").pack(side="left")
+        var_model = tk.StringVar(value=cur_model)
+        ttk.Combobox(row, textvariable=var_model, values=list(IMAGE2_MODELS),
+                     state="readonly", width=22).pack(side="left")
+        tk.Label(row, text="  크기:").pack(side="left")
+        var_size = tk.StringVar(value=cur_size)
+        ttk.Combobox(row, textvariable=var_size,
+                     values=["match", "1024x1024", "1536x1024", "1024x1536",
+                             "2048x2048", "2256x2256"],
+                     state="readonly", width=12).pack(side="left")
+        tk.Label(row, text="(match=원본 크기)", fg="#888",
+                 font=("맑은 고딕", 8)).pack(side="left", padx=4)
+
+        # 품질 — 요금은 1024x1024 1장 기준(크기가 커지면 비례해서 늘어남)
         row = tk.Frame(f); row.pack(fill="x", pady=10)
         tk.Label(row, text="품질:").pack(side="left")
         var_quality = tk.StringVar(value=default_quality)
+        q_btns = []
         for q, label in [("low", "low (~$0.006)"),
-                         ("medium", "medium (~$0.05)"),
-                         ("high", "high (~$0.21)")]:
-            tk.Radiobutton(row, text=label, value=q,
-                           variable=var_quality).pack(side="left", padx=4)
+                         ("medium", "medium (~$0.013)"),
+                         ("high", "high (~$0.053)"),
+                         ("xhigh", "xhigh (~$0.094)"),
+                         ("max", "max (~$0.21)")]:
+            rb = tk.Radiobutton(row, text=label, value=q,
+                                variable=var_quality)
+            rb.pack(side="left", padx=4)
+            q_btns.append((q, rb))
+
+        def _sync_quality(*_a):
+            """2.0 모델을 고르면 2.5 전용 단계(xhigh/max)를 잠근다."""
+            legacy = var_model.get() in IMAGE2_LEGACY_MODELS
+            for q, rb in q_btns:
+                if q in ("xhigh", "max"):
+                    rb.config(state="disabled" if legacy else "normal")
+            if legacy and var_quality.get() in ("xhigh", "max"):
+                var_quality.set("high")
+        var_model.trace_add("write", _sync_quality)
+        _sync_quality()
 
         # 검증 토글
         var_verify = tk.BooleanVar(value=True)
@@ -5262,10 +5335,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             verify_prompt = prompts.get(cat, {}).get("verify", "")
             quality = var_quality.get()
             run_verify = var_verify.get()
+            model = var_model.get()
+            size = var_size.get()
             dlg.destroy()
             self._vf_image2_run(
                 vf_idx, orig_path, prompt, verify_prompt,
-                quality, run_verify, cat,
+                quality, run_verify, cat, model=model, size=size,
             )
 
         tk.Button(btn_row, text="✨ 보정 시작", command=_start,
@@ -5273,7 +5348,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                   ).pack(side="right", padx=4)
 
     def _vf_image2_add_stage(self, vf_idx: int, label: str, state: str = "active"):
-        """image-2.0 동적 스테이지 추가/갱신.
+        """image-2.5 동적 스테이지 추가/갱신.
 
         state: "active" | "done" | "warning" | "error"
         """
@@ -5290,7 +5365,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         self._vf_redraw_image2_stages(vf_idx)
 
     def _vf_redraw_image2_stages(self, vf_idx: int):
-        """카드의 동적 image-2.0 스테이지 표시줄을 다시 렌더한다."""
+        """카드의 동적 image-2.5 스테이지 표시줄을 다시 렌더한다."""
         if not hasattr(self, "_vf_stage_rows"):
             return
         slot = self._vf_stage_rows.get(vf_idx)
@@ -5460,7 +5535,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 "  1️⃣  아래 링크 클릭 → OpenAI 설정 페이지 열림\n"
                 "  2️⃣  'Verify Organization' 버튼 클릭\n"
                 "  3️⃣  검증 완료 후 최대 15분 대기\n"
-                "  4️⃣  다시 image-2.0 보정 실행"
+                "  4️⃣  다시 image-2.5 보정 실행"
             ),
             font=("맑은 고딕", 10),
             justify="left",
@@ -5489,16 +5564,19 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         dlg.geometry(f"+{x}+{y}")
 
     def _vf_image2_run(self, vf_idx, src_path, enhance_prompt,
-                       verify_prompt, quality, run_verify, category):
-        """백그라운드 스레드에서 image-2.0 보정+검증 실행."""
+                       verify_prompt, quality, run_verify, category,
+                       model=None, size=None):
+        """백그라운드 스레드에서 image-2.5 보정+검증 실행."""
         import threading
 
-        # 스테이지 표시 시작
-        stage_label = f"image-2.0 ({quality})"
+        # 스테이지 표시 시작 — 모델 뒷부분만 짧게 (2.5-flare 등)
+        model_tag = (model or IMAGE2_DEFAULT_MODEL).replace("gpt-image-", "")
+        stage_label = f"image-{model_tag} ({quality})"
         self.after(0, lambda: self._vf_image2_add_stage(
             vf_idx, stage_label, "active"))
         self._log_unified(
-            f"  ✨ image-2.0 보정 시작 — {src_path.name} ({quality})")
+            f"  ✨ image-{model_tag} 보정 시작 — {src_path.name} "
+            f"({quality}, {size or 'match'})")
 
         def _worker():
             from src.openai_image import (
@@ -5515,16 +5593,20 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     cfg = {}
                 verify_model = cfg.get("verification", {}).get(
                     "model", "gpt-4o-mini")
+                use_model = model or cfg.get("model", IMAGE2_DEFAULT_MODEL)
+                use_size = size or cfg.get("default_size", "match")
 
                 client = GPTImage2Client(
-                    verification_model=verify_model)
+                    verification_model=verify_model, model=use_model)
 
                 enh, ver = client.enhance_and_verify(
                     image_bytes=img_bytes,
                     enhance_prompt=enhance_prompt,
                     verify_prompt=verify_prompt,
                     quality=quality,
+                    size=use_size,
                     run_verification=run_verify,
+                    model=use_model,
                 )
 
                 def _on_done():
@@ -5532,6 +5614,8 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     item.setdefault("image2_results", []).append({
                         "bytes": enh.enhanced_bytes,
                         "quality": enh.quality,
+                        "model": enh.model,
+                        "out_size": enh.size,
                         "prompt": enh.prompt_used,
                         "category": category,
                         "verification": (
@@ -5547,7 +5631,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                         state = "warning"
                     self._vf_image2_add_stage(vf_idx, stage_label, state)
                     self._vf_render_image2_options(vf_idx)
-                    # 현재 표시된 카드면 stage 탭에 새 image-2.0 탭 추가
+                    # 현재 표시된 카드면 stage 탭에 새 image-2.5 탭 추가
                     try:
                         cur_ref = getattr(self, "_vf_current_idx_ref", None)
                         if (cur_ref is not None and cur_ref[0] == vf_idx
@@ -5559,8 +5643,9 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     if ver and not ver.safe and ver.issues:
                         issues_msg = f" ⚠️ {ver.issues[0]}"
                     self._log_unified(
-                        f"  ✅ image-2.0 보정 완료 — {src_path.name} "
-                        f"({quality}, {enh.elapsed_sec:.1f}s){issues_msg}",
+                        f"  ✅ image-{model_tag} 보정 완료 — {src_path.name} "
+                        f"({quality}, {enh.size}, {enh.elapsed_sec:.1f}s, "
+                        f"${enh.cost_estimate_usd:.4f}){issues_msg}",
                         "success")
                 self.after(0, _on_done)
 
@@ -5572,27 +5657,27 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                     f"{err}\n\n충전 후 다시 시도해 주세요.",
                     parent=self._vf_dlg))
                 self._log_unified(
-                    f"  ❌ image-2.0 — 크레딧 부족", "error")
+                    f"  ❌ image-{model_tag} — 크레딧 부족", "error")
             except GPTImage2OrgVerificationError:
                 self.after(0, lambda: self._vf_image2_add_stage(
                     vf_idx, stage_label, "error"))
                 self.after(0, self._vf_show_org_verify_dialog)
                 self._log_unified(
-                    f"  ❌ image-2.0 — OpenAI 조직 검증 필요", "error")
+                    f"  ❌ image-{model_tag} — OpenAI 조직 검증 필요", "error")
             except Exception as e:
                 self.after(0, lambda: self._vf_image2_add_stage(
                     vf_idx, stage_label, "error"))
                 self.after(0, lambda err=str(e): messagebox.showerror(
-                    "image-2.0 실패", f"보정 실패:\n{err}",
+                    "image-2.5 실패", f"보정 실패:\n{err}",
                     parent=self._vf_dlg))
                 self._log_unified(
-                    f"  ❌ image-2.0 실패 — {e}", "error")
+                    f"  ❌ image-2.5 실패 — {e}", "error")
 
         threading.Thread(target=_worker, daemon=True,
                          name="image2-worker").start()
 
     def _vf_apply_image2_final(self, vf_idx: int):
-        """선택된 image-2.0 결과를 최종 저장 — OUTPUT/original 덮어쓰기 +
+        """선택된 image-2.5 결과를 최종 저장 — OUTPUT/original 덮어쓰기 +
         멀티사이즈 자동 재생성."""
         from PIL import Image
         import io as _io
@@ -5604,7 +5689,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         if sel < 0:
             messagebox.showinfo(
                 "안내",
-                "선택된 image-2.0 결과가 없습니다.\n"
+                "선택된 image-2.5 결과가 없습니다.\n"
                 "라디오에서 적용할 결과를 먼저 선택하세요.",
                 parent=self._vf_dlg)
             return
@@ -5650,7 +5735,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 parent=self._vf_dlg)
             return
 
-        # image-2.0 결과를 base_size로 업스케일하여 저장
+        # image-2.5 결과를 base_size로 업스케일하여 저장
         try:
             i2_img = Image.open(_io.BytesIO(result["bytes"]))
             if i2_img.mode != "RGB":
@@ -5677,7 +5762,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 pass
             messagebox.showerror(
                 "저장 실패",
-                f"image-2.0 결과 저장 중 오류:\n{e}",
+                f"image-2.5 결과 저장 중 오류:\n{e}",
                 parent=self._vf_dlg)
             return
 
@@ -5731,12 +5816,12 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         item["final_saved"] = True
         self._vf_render_image2_options(vf_idx)
         self._log_unified(
-            f"  💾 image-2.0 최종 저장 완료 — {orig_path.name} "
+            f"  💾 image-2.5 최종 저장 완료 — {orig_path.name} "
             f"(백업: {backup.name})",
             "success")
         messagebox.showinfo(
             "최종 저장 완료",
-            f"image-2.0 결과가 최종 저장되었습니다.\n\n"
+            f"image-2.5 결과가 최종 저장되었습니다.\n\n"
             f"  • 원본 → {backup.name}로 백업\n"
             f"  • 새 원본: {orig_path.name}\n"
             f"  • 1500/860/crop 자동 재생성 완료",

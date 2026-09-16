@@ -1,6 +1,7 @@
 image2:
+  model: gpt-image-2.5-flare
   default_quality: medium
-  default_size: 1024x1024
+  default_size: match
   verification:
     model: gpt-4o-mini
     block_on_unsafe: false
@@ -12,18 +13,14 @@ image2:
 
         Keep the product, pose, and composition exactly the same.
 
-        Pure white background. No text, no watermarks.
-
-        '
+        Pure white background. No text, no watermarks.'
       verify: 'Compare the original (first image) and enhanced (second image).
 
         Check if logos, text, brand marks, or distinctive product features
 
         have been altered, distorted, or blurred.
 
-        Respond ONLY in JSON: {"safe": true|false, "issues": ["short Korean strings"]}.
-
-        '
+        Respond ONLY in JSON: {"safe": true|false, "issues": ["short Korean strings"]}.'
     jewelry:
       enhance: 'Enhance details and reflective highlights on this jewelry product
         photo.
