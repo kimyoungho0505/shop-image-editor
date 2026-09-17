@@ -810,10 +810,10 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         glob = tk.Frame(parent); glob.pack(fill="x", padx=12, pady=4)
 
         tk.Label(glob, text="검증 모델:").pack(side="left")
-        self.var_image2_verify_model = tk.StringVar(value="gpt-4o-mini")
+        self.var_image2_verify_model = tk.StringVar(value="gpt-5.4-mini")
         ttk.Combobox(
             glob, textvariable=self.var_image2_verify_model,
-            values=["gpt-4o-mini", "gpt-4o"], state="readonly", width=14,
+            values=["gpt-5.4-mini", "gpt-5.5", "gpt-4o-mini", "gpt-4o"], state="readonly", width=14,
         ).pack(side="left", padx=4)
 
         self.var_image2_block_unsafe = tk.BooleanVar(value=False)
@@ -962,7 +962,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 cfg.get("model", IMAGE2_DEFAULT_MODEL))
             self.var_image2_size.set(cfg.get("default_size", "match"))
             self.var_image2_verify_model.set(
-                cfg.get("verification", {}).get("model", "gpt-4o-mini"))
+                cfg.get("verification", {}).get("model", "gpt-5.4-mini"))
             self.var_image2_block_unsafe.set(
                 bool(cfg.get("verification", {}).get("block_on_unsafe", False)))
 
@@ -1566,30 +1566,30 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
         ttk.Label(model_f, text="Claude:", style="Card.TLabel",
                   font=(FONT_FAMILY, 9)).pack(side="left", padx=(2, 4))
-        self.var_model = tk.StringVar(value="claude-sonnet-4-20250514")
+        self.var_model = tk.StringVar(value="claude-sonnet-5")
         ttk.Combobox(model_f, textvariable=self.var_model, width=28,
-            values=["claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"],
+            values=["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5-20251001", "claude-fable-5-1"],
             font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 12))
 
         ttk.Label(model_f, text="OpenAI:", style="Card.TLabel",
                   font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 4))
-        self.var_openai_model = tk.StringVar(value="gpt-4o")
+        self.var_openai_model = tk.StringVar(value="gpt-5.5")
         ttk.Combobox(model_f, textvariable=self.var_openai_model, width=14,
-            values=["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+            values=["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.1", "gpt-4o", "gpt-4o-mini"],
             font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 12))
 
         ttk.Label(model_f, text="Gemini:", style="Card.TLabel",
                   font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 4))
-        self.var_gemini_model = tk.StringVar(value="gemini-2.5-flash")
+        self.var_gemini_model = tk.StringVar(value="gemini-3.8-flash")
         ttk.Combobox(model_f, textvariable=self.var_gemini_model, width=18,
-            values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"],
+            values=["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
             font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 12))
 
         ttk.Label(model_f, text="Grok:", style="Card.TLabel",
                   font=(FONT_FAMILY, 9)).pack(side="left", padx=(0, 4))
-        self.var_grok_model = tk.StringVar(value="grok-4-fast-non-reasoning")
+        self.var_grok_model = tk.StringVar(value="grok-4.6")
         ttk.Combobox(model_f, textvariable=self.var_grok_model, width=24,
-            values=["grok-4-fast-non-reasoning", "grok-4-fast-reasoning", "grok-4-0709"],
+            values=["grok-4.6", "grok-4.5", "grok-4.3", "grok-4.20-0309-non-reasoning", "grok-4-fast-non-reasoning"],
             font=(FONT_FAMILY, 9)).pack(side="left")
 
         ttk.Button(model_f, text="모델 저장", width=8,
@@ -2758,7 +2758,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
             self.var_max_kb.set(str(out.get("max_file_size_kb", 2024)))
             self.var_jpeg_q.set(str(out.get("default_jpeg_quality", 95)))
             api = data.get("api", {})
-            self.var_model.set(api.get("model", "claude-sonnet-4-20250514"))
+            self.var_model.set(api.get("model", "claude-sonnet-5"))
 
             # Photoroom 설정 로드
             pr = data.get("photoroom", {}).get("full", {})
@@ -2785,11 +2785,11 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
 
             # OpenAI/Gemini 설정 로드
             openai_config = data.get("openai", {})
-            self.var_openai_model.set(openai_config.get("model", "gpt-4o"))
+            self.var_openai_model.set(openai_config.get("model", "gpt-5.5"))
             gemini_config = data.get("gemini", {})
-            self.var_gemini_model.set(gemini_config.get("model", "gemini-2.5-flash"))
+            self.var_gemini_model.set(gemini_config.get("model", "gemini-3.8-flash"))
             grok_config = data.get("grok", {})
-            self.var_grok_model.set(grok_config.get("model", "grok-4-fast-non-reasoning"))
+            self.var_grok_model.set(grok_config.get("model", "grok-4.6"))
 
             # AI 자동/수동 모드 설정 로드
             auto_opts = data.get("auto_options", {})
@@ -5316,7 +5316,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
         # 검증 토글
         var_verify = tk.BooleanVar(value=True)
         tk.Checkbutton(
-            f, text="자동 검증 (gpt-4o-mini, ~$0.001)",
+            f, text="자동 검증 (gpt-5.4-mini, ~$0.001)",
             variable=var_verify,
         ).pack(anchor="w", pady=(4, 8))
 
@@ -5592,7 +5592,7 @@ class App(TkinterDnD.Tk if _DND_AVAILABLE else tk.Tk):
                 except Exception:
                     cfg = {}
                 verify_model = cfg.get("verification", {}).get(
-                    "model", "gpt-4o-mini")
+                    "model", "gpt-5.4-mini")
                 use_model = model or cfg.get("model", IMAGE2_DEFAULT_MODEL)
                 use_size = size or cfg.get("default_size", "match")
 

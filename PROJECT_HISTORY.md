@@ -1436,3 +1436,21 @@ pip install git+https://github.com/ChaoningZhang/MobileSAM.git
 | `config/categories.yaml` | 카테고리 여백 | 변경 없음 |
 | `gui_pyside/` | PySide6 GUI | 복합 배경 라디오, 뷰파인더 크래시 수정, closeEvent 타이머 정리 |
 | `.claude/skills/` | API 사용법 스킬 | `api-ai.md` (AI API), `api-image.md` (이미지 API) 신규 |
+
+
+## 2026-09-17 — AI 모델·SDK 최신화 (luxboy-studio 와 동기화)
+
+luxboy-studio 와 공유하는 파일을 그대로 복사하고, 이 앱만의 코드(`gui3.py`, 구버전
+`pipeline.py`)는 같은 값으로 치환했다. 자세한 실측 근거는
+`luxboy-studio/history.md` 2026-09-17 절.
+
+- 신규 `src/utils/model_registry.py` — 최신 기본값·퇴역 ID 자동 치환·GUI 선택지.
+- Claude 기본 `claude-sonnet-4-20250514`(404 퇴역) → `claude-sonnet-5`,
+  OpenAI `gpt-4o` → `gpt-5.5`(+`reasoning_effort: low`), 검증 `gpt-4o-mini` → `gpt-5.4-mini`,
+  Gemini `gemini-2.5-flash` → `gemini-3.8-flash`, Grok → `grok-4.6`,
+  그림자 `gemini-3-pro-image`(GA)/`gemini-3.1-flash-image`, `grok-imagine-image-2.0`,
+  TTS `gpt-4o-mini-tts`, Claid `v1` 업로드 엔드포인트.
+- `gui3.py` 모델 콤보박스 4종 + image2.5 검증 모델 목록을 새 값으로.
+- `requirements.txt`: `anthropic>=1.6,<2`, `openai>=3.14,<4`, `google-genai>=2.24,<3`;
+  `gui3.spec` 에 `httpx2`·`httpcore2` hidden import.
+- 검증: `compileall` 통과, 새 SDK 로 `src.pipeline` import 정상.

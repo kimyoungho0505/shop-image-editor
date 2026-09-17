@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from loguru import logger
 from openai import OpenAI, APIStatusError
 
+from ..utils.model_registry import LATEST, is_reasoning_openai, resolve
+
 
 @dataclass
 class GPTImage2Result:
@@ -119,19 +121,23 @@ def snap_size(width: int, height: int | None = None) -> str:
 
 
 class GPTImage2Client:
-    """gpt-image-2.5 보정 + gpt-4o-mini 검증 통합 클라이언트."""
+    """gpt-image-2.5 보정 + gpt-5.4-mini 검증 통합 클라이언트.
+
+    검증 모델은 2026-09-17 gpt-4o-mini → gpt-5.4-mini 로 올렸다(실측: JSON 응답
+    정상, reasoning_effort=low 로 52 토큰). gpt-4o-mini 도 그대로 고를 수 있다.
+    """
 
     def __init__(
         self,
         api_key: str | None = None,
-        verification_model: str = "gpt-4o-mini",
+        verification_model: str = LATEST["openai_mini"],
         timeout: int = 300,
         model: str = DEFAULT_MODEL,
     ):
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         if not self._api_key:
             raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
-        self.verification_model = verification_model
+        self.verification_model = resolve(verification_model, "openai_mini", logger.warning)
         self.model = model or DEFAULT_MODEL
         self.timeout = timeout
         self._client = OpenAI(api_key=self._api_key, timeout=timeout)
@@ -244,7 +250,7 @@ class GPTImage2Client:
         enhanced_bytes: bytes,
         prompt: str,
     ) -> VerificationResult:
-        """gpt-4o-mini로 원본 vs 보정 이미지 변형 여부 검증."""
+        """검증 모델(기본 gpt-5.4-mini)로 원본 vs 보정 이미지 변형 여부 검증."""
         o_b64 = base64.b64encode(original_bytes).decode()
         e_b64 = base64.b64encode(enhanced_bytes).decode()
 
@@ -264,6 +270,9 @@ class GPTImage2Client:
                 }],
                 response_format={"type": "json_object"},
                 timeout=self.timeout,
+                # gpt-5 계열은 temperature 를 못 바꾸는 대신 추론 깊이를 정한다
+                **({"reasoning_effort": "low"}
+                   if is_reasoning_openai(self.verification_model) else {}),
             )
         except APIStatusError as e:
             status = getattr(getattr(e, "response", None), "status_code", None)

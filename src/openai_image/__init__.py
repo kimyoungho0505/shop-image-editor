@@ -1,4 +1,4 @@
-"""OpenAI gpt-image-2.5 사후 보정 + gpt-4o-mini 검증."""
+"""OpenAI gpt-image-2.5 사후 보정 + gpt-5.4-mini 검증."""
 from .client import (
     GPTImage2Client,
     GPTImage2Result,

@@ -1,11 +1,20 @@
-"""Grok (xAI) Vision API 클라이언트."""
+"""Grok (xAI) Vision API 클라이언트.
+
+2026-09-17 갱신 — 기본 모델 grok-4-fast-non-reasoning → grok-4.6
+  xAI 모델 목록(실측): grok-4.6 / 4.5 / 4.3 / grok-4.20-0309-(non-)reasoning.
+  grok-4-fast-non-reasoning 은 별칭으로 아직 응답하지만 목록에는 없다.
+  grok-4.6 은 추론 모델이라 한 장에 10초 안팎 걸린다. 속도가 우선이면
+  settings.yaml 의 grok.model 을 grok-4.20-0309-non-reasoning 으로 바꾼다.
+  `max_tokens`·`temperature` 는 grok-4.6 에서도 그대로 받는다(실측).
+"""
 import os
 
-import cv2
+import cv2  # noqa: F401
 import numpy as np
 from loguru import logger
 
 from ..utils.image_io import to_base64
+from ..utils.model_registry import LATEST, resolve
 
 
 class GrokVisionClient:
@@ -14,11 +23,11 @@ class GrokVisionClient:
     OpenAI 호환 API 형식을 사용하며, base_url만 xAI 엔드포인트로 변경.
     """
 
-    def __init__(self, api_key: str = None, model: str = "grok-4-fast-non-reasoning"):
+    def __init__(self, api_key: str = None, model: str = LATEST["grok"]):
         """
         Args:
             api_key: xAI API 키. None이면 환경변수에서 로드.
-            model: 사용할 모델명 (grok-4-fast-non-reasoning, grok-3 등)
+            model: 사용할 모델명 (grok-4.6, grok-4.5, grok-4.20-0309-non-reasoning 등)
         """
         self._api_key = api_key or os.getenv("XAI_API_KEY")
         if not self._api_key:
@@ -26,7 +35,7 @@ class GrokVisionClient:
                 "XAI_API_KEY가 설정되지 않았습니다. "
                 ".env 파일 또는 환경변수를 확인하세요."
             )
-        self._model = model
+        self._model = resolve(model, "grok", logger.warning)
 
         import openai
         self._client = openai.OpenAI(
@@ -34,7 +43,11 @@ class GrokVisionClient:
             base_url="https://api.x.ai/v1",
         )
         self._openai = openai
-        logger.info(f"Grok Vision 클라이언트 초기화 (model={model})")
+        logger.info(f"Grok Vision 클라이언트 초기화 (model={self._model})")
+
+    @property
+    def model(self) -> str:
+        return self._model
 
     def analyze_image(
         self,
@@ -99,7 +112,7 @@ class GrokVisionClient:
                 ],
             )
 
-            response_text = response.choices[0].message.content
+            response_text = response.choices[0].message.content or ""
             logger.info(
                 f"Grok API 응답 수신 (tokens: input={response.usage.prompt_tokens}, "
                 f"output={response.usage.completion_tokens})"

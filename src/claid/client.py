@@ -12,7 +12,7 @@ from typing import Optional
 class ClaidClient:
     """Claid.ai API를 통한 이미지 보정, 업스케일, 리사이즈."""
 
-    API_URL = "https://api.claid.ai/v1-beta1/image/edit/upload"
+    API_URL = "https://api.claid.ai/v1/image/edit/upload"   # 2026-09-17 v1-beta1 → v1 (동일 요청·응답 실측)
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("CLAID_API_KEY", "")

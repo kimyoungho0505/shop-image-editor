@@ -7,15 +7,17 @@ import numpy as np
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+from ..utils.model_registry import LATEST, resolve
+
 
 class GeminiVisionClient:
     """Google Gemini Vision API를 사용하여 이미지를 분석한다."""
 
-    def __init__(self, api_key: str = None, model: str = "gemini-2.5-flash"):
+    def __init__(self, api_key: str = None, model: str = LATEST["gemini"]):
         """
         Args:
             api_key: Gemini API 키. None이면 환경변수에서 로드.
-            model: 사용할 모델명
+            model: 사용할 모델명 (gemini-3.8-flash, gemini-3.5-flash, gemini-2.5-flash …)
         """
         self._api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self._api_key:
@@ -23,12 +25,12 @@ class GeminiVisionClient:
                 "GEMINI_API_KEY가 설정되지 않았습니다. "
                 ".env 파일 또는 환경변수를 확인하세요."
             )
-        self._model = model
+        self._model = resolve(model, "gemini", logger.warning)
 
         from google import genai
         self._genai = genai
         self._client = genai.Client(api_key=self._api_key)
-        logger.info(f"Gemini Vision 클라이언트 초기화 (model={model})")
+        logger.info(f"Gemini Vision 클라이언트 초기화 (model={self._model})")
 
     def _encode_image_bytes(self, img: np.ndarray, max_size: int = 1568) -> bytes:
         """BGR numpy 이미지를 JPEG bytes로 변환한다."""

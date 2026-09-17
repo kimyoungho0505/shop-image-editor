@@ -962,22 +962,23 @@ class ImageEditPipeline:
             if self._vision_provider == "chatgpt":
                 openai_config = self._settings.get("openai", {})
                 self._vision_client = OpenAIVisionClient(
-                    model=openai_config.get("model", "gpt-4o")
+                    model=openai_config.get("model", "gpt-5.5"),
+                    reasoning_effort=openai_config.get("reasoning_effort", "low")
                 )
             elif self._vision_provider == "gemini":
                 gemini_config = self._settings.get("gemini", {})
                 self._vision_client = GeminiVisionClient(
-                    model=gemini_config.get("model", "gemini-2.5-flash")
+                    model=gemini_config.get("model", "gemini-3.8-flash")
                 )
             elif self._vision_provider == "grok":
                 grok_config = self._settings.get("grok", {})
                 self._vision_client = GrokVisionClient(
-                    model=grok_config.get("model", "grok-4-fast-non-reasoning")
+                    model=grok_config.get("model", "grok-4.6")
                 )
             else:
                 api_config = self._settings.get("api", {})
                 self._vision_client = VisionClient(
-                    model=api_config.get("model", "claude-sonnet-4-20250514")
+                    model=api_config.get("model", "claude-sonnet-5")
                 )
         return self._vision_client
 
@@ -2288,16 +2289,17 @@ class ImageEditPipeline:
         """지정된 프로바이더의 Vision 클라이언트를 생성한다."""
         if provider == "chatgpt":
             cfg = self._settings.get("openai", {})
-            return OpenAIVisionClient(model=cfg.get("model", "gpt-4o"))
+            return OpenAIVisionClient(model=cfg.get("model", "gpt-5.5"),
+                                      reasoning_effort=cfg.get("reasoning_effort", "low"))
         elif provider == "gemini":
             cfg = self._settings.get("gemini", {})
-            return GeminiVisionClient(model=cfg.get("model", "gemini-2.5-flash"))
+            return GeminiVisionClient(model=cfg.get("model", "gemini-3.8-flash"))
         elif provider == "grok":
             cfg = self._settings.get("grok", {})
-            return GrokVisionClient(model=cfg.get("model", "grok-4-fast-non-reasoning"))
+            return GrokVisionClient(model=cfg.get("model", "grok-4.6"))
         else:  # claude
             cfg = self._settings.get("api", {})
-            return VisionClient(model=cfg.get("model", "claude-sonnet-4-20250514"))
+            return VisionClient(model=cfg.get("model", "claude-sonnet-5"))
 
     def _evaluate_independent(self, result_bytes: bytes,
                               image_type: str, needs_shadow: bool,
@@ -2506,7 +2508,7 @@ class ImageEditPipeline:
                     return ""
                 client = genai.Client(api_key=api_key)
                 gemini_cfg = self._settings.get("gemini", {})
-                text_model = gemini_cfg.get("model", "gemini-2.5-flash")
+                text_model = gemini_cfg.get("model", "gemini-3.8-flash")
                 response = client.models.generate_content(
                     model=text_model,
                     contents=question,
@@ -2521,7 +2523,7 @@ class ImageEditPipeline:
                 if not api_key:
                     return ""
                 grok_cfg = self._settings.get("grok", {})
-                text_model = grok_cfg.get("model", "grok-4-fast-non-reasoning")
+                text_model = grok_cfg.get("model", "grok-4.6")
                 resp = _requests.post(
                     "https://api.x.ai/v1/chat/completions",
                     headers={
@@ -3599,7 +3601,7 @@ class ImageEditPipeline:
 
             # 이미지 편집 모델
             model = self._settings.get("gemini_shadow", {}).get(
-                "model", "gemini-3.1-flash-image-preview")
+                "model", "gemini-3-pro-image")
 
             # mime type 자동 감지
             def _detect_mime(data: bytes) -> str:
@@ -3698,10 +3700,10 @@ class ImageEditPipeline:
 
             # ★ 폴백 모델 체인: 현재 모델 → 폴백 모델 (서버 과부하 시 자동 전환)
             fallback_model = gs_cfg.get(
-                "fallback_model", "gemini-3-pro-image-preview")
+                "fallback_model", "gemini-3.1-flash-image")
             FALLBACK_MODELS = [
-                model,          # 설정된 기본 모델 (예: gemini-3.1-flash-image-preview)
-                fallback_model,  # 폴백 모델 (예: gemini-3-pro-image-preview)
+                model,          # 설정된 기본 모델 (예: gemini-3-pro-image)
+                fallback_model,  # 폴백 모델 (예: gemini-3.1-flash-image)
             ]
             # 중복 제거 (이미 Pro 모델이 기본이면 폴백 불필요)
             seen = set()
@@ -3834,7 +3836,7 @@ class ImageEditPipeline:
 
             # settings.yaml에서 프롬프트 로드 (통합 3개 키, 하위호환 포함)
             gs_cfg = self._settings.get("grok_shadow", {})
-            model = gs_cfg.get("model", "grok-imagine-image")
+            model = gs_cfg.get("model", "grok-imagine-image-2.0")
 
             main_prompt = gs_cfg.get("main_prompt",
                 "위 이미지는 배경이 제거된 누끼 이미지입니다. "

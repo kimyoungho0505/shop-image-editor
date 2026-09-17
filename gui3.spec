@@ -46,6 +46,9 @@ hidden_imports = [
     "anthropic",
     "openai",
     "google.genai",
+    # SDK 1.x/3.x 의 HTTP 계층(httpx 포크) — 누락되면 첫 API 호출에서 죽는다
+    "httpx2",
+    "httpcore2",
     "requests",
     # 유틸
     "loguru",

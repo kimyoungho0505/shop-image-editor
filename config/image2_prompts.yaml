@@ -3,7 +3,7 @@ image2:
   default_quality: medium
   default_size: match
   verification:
-    model: gpt-4o-mini
+    model: gpt-5.4-mini
     block_on_unsafe: false
   prompts:
     default:

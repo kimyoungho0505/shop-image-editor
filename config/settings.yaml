@@ -25,15 +25,16 @@ providers:
   enhancement: claid
   shadow: gemini_shadow
 openai:
-  model: gpt-4o
+  model: gpt-5.5
+  reasoning_effort: low
   max_tokens: 2048
   temperature: 0.1
 gemini:
-  model: gemini-2.5-flash
+  model: gemini-3.8-flash
   max_tokens: 4096
   temperature: 0.1
 grok:
-  model: grok-4-fast-non-reasoning
+  model: grok-4.6
   max_tokens: 2048
   temperature: 0.1
 shadow_extract:
@@ -167,13 +168,13 @@ gemini_shadow:
 
     의류 자체(색상, 질감, 로고, 지퍼 등)는 절대 변경하지 마세요. 럭셔리 이커머스 제품 사진처럼 고급스럽게 만들어주세요.'
   order: after_enhance
-  model: gemini-3-pro-image-preview
-  fallback_model: gemini-3-pro-image-preview
+  model: gemini-3-pro-image
+  fallback_model: gemini-3.1-flash-image
   original_prompt: '위 이미지는 원본 제품 사진입니다. 원본에 있는 자연스러운 그림자의 방향, 농도, 부드러움을 참고하세요.
 
     원본 사진의 그림자를 최대한 동일하게 재현해주세요. 그림자의 방향이 같도록 해주세요 피사체의 원형은 변경하지 않습니다.'
 grok_shadow:
-  model: grok-imagine-image
+  model: grok-imagine-image-2.0
   main_prompt: '이 PNG 이미지에 부드러운 드롭 쉐도우를 추가해줘.
 
 
@@ -217,7 +218,7 @@ grok_shadow:
     원본 사진의 그림자를 최대한 동일하게 재현해주세요.'
 tts:
   provider: openai
-  openai_model: tts-1-hd
+  openai_model: gpt-4o-mini-tts
   speed: 1.0
   voices:
     claude: alloy
